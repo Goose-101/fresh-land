@@ -1,0 +1,160 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-inter: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --color-bg: #f8fafc;
+  --color-surface: #ffffff;
+  --color-text: #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-muted: #94a3b8;
+  --color-border: #e2e8f0;
+  --color-primary-light: #f0fdf4;
+  --color-primary-dark: #065f46;
+  --font-scale: 1;
+}
+
+html.dark {
+  --color-bg: #0a0f1c;
+  --color-surface: #111827;
+  --color-text: #f1f5f9;
+  --color-text-secondary: #cbd5e1;
+  --color-text-muted: #94a3b8;
+  --color-border: #1e293b;
+  --color-primary-light: rgba(16, 185, 129, 0.12);
+  --color-primary-dark: #6ee7b7;
+}
+
+html, body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.7;
+  font-size: calc(16px * var(--font-scale));
+}
+
+body {
+  font-family: var(--font-inter);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.label {
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { scrollbar-width: none; }
+
+/* ---------- Visual flourishes ---------- */
+
+/* Subtle dot-grid background — used on hero sections */
+.dot-grid {
+  background-image: radial-gradient(circle, rgba(15, 23, 42, 0.08) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+html.dark .dot-grid {
+  background-image: radial-gradient(circle, rgba(148, 163, 184, 0.12) 1px, transparent 1px);
+}
+
+/* Soft radial glow under the hero — adds depth */
+.hero-glow {
+  background:
+    radial-gradient(60% 50% at 50% 0%, rgba(16, 185, 129, 0.18), transparent 70%),
+    radial-gradient(40% 30% at 80% 20%, rgba(5, 150, 105, 0.10), transparent 70%);
+}
+html.dark .hero-glow {
+  background:
+    radial-gradient(60% 50% at 50% 0%, rgba(16, 185, 129, 0.18), transparent 70%),
+    radial-gradient(40% 30% at 80% 20%, rgba(110, 231, 183, 0.12), transparent 70%);
+}
+
+/* Gradient brand text — for highlighting a key word */
+.text-gradient {
+  background: linear-gradient(120deg, #10b981 0%, #34d399 50%, #6ee7b7 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+          color: transparent;
+}
+html.dark .text-gradient {
+  background: linear-gradient(120deg, #34d399 0%, #6ee7b7 50%, #a7f3d0 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+          color: transparent;
+}
+
+/* Live status pulse dot — paired with .animate-pulse-dot */
+.live-dot {
+  position: relative;
+  display: inline-block;
+  height: 0.5rem;
+  width: 0.5rem;
+  border-radius: 9999px;
+  background: #ef4444;
+}
+.live-dot::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 9999px;
+  background: rgba(239, 68, 68, 0.45);
+  animation: liveRing 1.6s ease-out infinite;
+}
+@keyframes liveRing {
+  0%   { transform: scale(0.6); opacity: 0.9; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+/* ---------- Dark-mode tweaks for existing utility classes ---------- */
+html.dark .bg-white { background-color: var(--color-surface) !important; }
+html.dark .border-border { border-color: var(--color-border) !important; }
+html.dark .text-text { color: var(--color-text) !important; }
+html.dark .text-text-secondary { color: var(--color-text-secondary) !important; }
+html.dark .text-text-muted { color: var(--color-text-muted) !important; }
+html.dark .bg-bg { background-color: var(--color-bg) !important; }
+html.dark .bg-slate-50 { background-color: #0f172a !important; }
+html.dark .bg-slate-100 { background-color: #1e293b !important; }
+html.dark .bg-white\/90 { background-color: rgba(15, 23, 42, 0.85) !important; backdrop-filter: blur(10px); }
+html.dark .bg-white\/80 { background-color: rgba(15, 23, 42, 0.8) !important; }
+html.dark .bg-primary-light { background-color: var(--color-primary-light) !important; }
+html.dark .text-primary-dark { color: var(--color-primary-dark) !important; }
+html.dark .from-primary-light { --tw-gradient-from: var(--color-primary-light) !important; }
+html.dark .via-white { --tw-gradient-via: var(--color-surface) !important; }
+html.dark .to-white { --tw-gradient-to: var(--color-bg) !important; }
+
+html.high-contrast {
+  --color-text: #000000;
+  --color-text-secondary: #111111;
+  --color-border: #000000;
+}
+html.high-contrast.dark {
+  --color-text: #ffffff;
+  --color-text-secondary: #eeeeee;
+  --color-border: #ffffff;
+}
+
+html.reduce-motion *,
+html.reduce-motion *::before,
+html.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
