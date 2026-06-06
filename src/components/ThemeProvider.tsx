@@ -10,7 +10,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     try {
       const saved = localStorage.getItem("theme") as Theme | null;
       const a = localStorage.getItem("accessibility");
-      const theme: Theme = saved || "system";
+      const theme: Theme = saved || "light";
       applyTheme(theme);
       useAppStore.setState({ theme });
 

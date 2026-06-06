@@ -79,7 +79,7 @@ type AppStore = {
 };
 
 export const useAppStore = create<AppStore>((set, get) => ({
-  theme: "system",
+  theme: "light",
   setTheme: (theme) => {
     set({ theme });
     try { localStorage.setItem("theme", theme); } catch {}
