@@ -47,8 +47,13 @@ export async function middleware(req: NextRequest) {
 
     if (isAuthPage) {
       const url = req.nextUrl.clone();
-      url.pathname = profile?.onboarding_complete ? "/dashboard" : "/onboarding";
-      if (!profile?.onboarding_complete) url.search = "start=1";
+      url.search = "";
+      if (profile?.onboarding_complete) {
+        url.pathname = "/dashboard";
+      } else {
+        url.pathname = "/onboarding";
+        url.searchParams.set("start", "1");
+      }
       return NextResponse.redirect(url);
     }
     if (isOnboarding && profile?.onboarding_complete) {

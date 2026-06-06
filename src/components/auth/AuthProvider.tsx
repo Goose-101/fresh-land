@@ -3,7 +3,7 @@ import { ReactNode, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAppStore } from "@/store";
 
-const IDLE_TIMEOUT_MS = 20 * 60 * 1000;
+const IDLE_TIMEOUT_MS = 12 * 60 * 60 * 1000;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { user, setUser, setSavedIds, setNotifications, setCurrentLanguage } = useAppStore();

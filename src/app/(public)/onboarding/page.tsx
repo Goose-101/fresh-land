@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Logo } from "@/components/layout/Logo";
@@ -18,13 +18,16 @@ export default function OnboardingPage() {
   const { t } = useT();
   const [allowed, setAllowed] = useState(false);
   const [step, setStep] = useState(1);
+  const checkedRef = useRef(false);
 
-  // Require an explicit "start=1" intent to be here. Without it, send the user
-  // back to the homepage so reloads + bookmarks don't drop them mid-flow.
-  // Once we've seen the intent, strip it from the URL so a future reload
-  // also bounces back to the homepage.
+  // Require an explicit "start=1" intent on the FIRST mount only. We use a ref
+  // so the check doesn't fire again after we strip the query param (otherwise
+  // the second effect run would see no start=1 and bounce the user home).
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (checkedRef.current) return;
+    checkedRef.current = true;
+
     if (params.get("start") === "1") {
       window.history.replaceState({}, "", "/onboarding");
       setAllowed(true);
