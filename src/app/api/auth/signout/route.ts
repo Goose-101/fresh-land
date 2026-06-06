@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
 async function handle(req: NextRequest) {
-  const response = NextResponse.redirect(new URL("/", req.url), { status: 303 });
+  const response = NextResponse.redirect(new URL("/login", req.url), { status: 303 });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,7 +12,8 @@ async function handle(req: NextRequest) {
         getAll: () => req.cookies.getAll(),
         setAll: (cookiesToSet: { name: string; value: string; options: CookieOptions }[]) => {
           cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options);
+            const { maxAge: _ma, expires: _ex, ...rest } = options;
+            response.cookies.set(name, value, rest);
           });
         },
       },
