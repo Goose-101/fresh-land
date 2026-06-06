@@ -26,9 +26,23 @@ export function Header() {
             {t("nav.categories")}
           </Link>
           {user && (
-            <Link href="/dashboard" className="px-3 py-2 text-sm font-medium text-text-secondary hover:text-primary">
-              {t("nav.dashboard")}
-            </Link>
+            <>
+              <Link href="/dashboard" className="px-3 py-2 text-sm font-medium text-text-secondary hover:text-primary">
+                {t("nav.dashboard")}
+              </Link>
+              <Link href="/pathway" className="px-3 py-2 text-sm font-medium text-text-secondary hover:text-primary">
+                {t("nav.pathway")}
+              </Link>
+              <Link href="/community" className="px-3 py-2 text-sm font-medium text-text-secondary hover:text-primary">
+                {t("nav.community")}
+              </Link>
+              <Link href="/saved" className="px-3 py-2 text-sm font-medium text-text-secondary hover:text-primary">
+                {t("nav.saved")}
+              </Link>
+              <Link href="/settings" className="px-3 py-2 text-sm font-medium text-text-secondary hover:text-primary">
+                {t("nav.settings")}
+              </Link>
+            </>
           )}
         </nav>
         <div className="ml-auto flex items-center gap-2">
@@ -63,7 +77,15 @@ export function Header() {
         <div className="md:hidden border-t border-border bg-white px-4 py-3 flex flex-col gap-1">
           <Link href="/resources" className="py-2 text-sm font-medium">{t("nav.resources")}</Link>
           <Link href="/categories/legal" className="py-2 text-sm font-medium">{t("nav.categories")}</Link>
-          {user && <Link href="/dashboard" className="py-2 text-sm font-medium">{t("nav.dashboard")}</Link>}
+          {user && (
+            <>
+              <Link href="/dashboard" className="py-2 text-sm font-medium">{t("nav.dashboard")}</Link>
+              <Link href="/pathway" className="py-2 text-sm font-medium">{t("nav.pathway")}</Link>
+              <Link href="/community" className="py-2 text-sm font-medium">{t("nav.community")}</Link>
+              <Link href="/saved" className="py-2 text-sm font-medium">{t("nav.saved")}</Link>
+              <Link href="/settings" className="py-2 text-sm font-medium">{t("nav.settings")}</Link>
+            </>
+          )}
           {!user && <Link href="/login" className="py-2 text-sm font-medium">{t("action.signIn")}</Link>}
         </div>
       )}
