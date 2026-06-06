@@ -52,26 +52,39 @@ export default function OnboardingPage() {
 
   const finish = async () => {
     setSaving(true);
-    const supabase = createClient();
-    const { data: { user: authUser } } = await supabase.auth.getUser();
-    if (!authUser) {
-      router.push("/login");
-      return;
+    try {
+      const supabase = createClient();
+      const { data: { user: authUser }, error: authErr } = await supabase.auth.getUser();
+      if (authErr || !authUser) {
+        router.push("/login");
+        return;
+      }
+      const { data, error } = await supabase
+        .from("profiles")
+        .update({
+          preferred_language: language,
+          city,
+          needs,
+          onboarding_complete: true,
+        })
+        .eq("id", authUser.id)
+        .select()
+        .single();
+      if (error) {
+        console.error("[onboarding] finish failed", error.message);
+        // Even if the profile update fails, push forward — middleware will
+        // re-route if needed and we don't want the user trapped on this page.
+      } else if (data) {
+        setUser(data);
+      }
+      router.push("/dashboard");
+      router.refresh();
+    } catch (e: any) {
+      console.error("[onboarding] finish exception", e?.message);
+      router.push("/dashboard");
+    } finally {
+      setSaving(false);
     }
-    const { data } = await supabase
-      .from("profiles")
-      .update({
-        preferred_language: language,
-        city,
-        needs,
-        onboarding_complete: true,
-      })
-      .eq("id", authUser.id)
-      .select()
-      .single();
-    if (data) setUser(data);
-    router.push("/dashboard");
-    router.refresh();
   };
 
   const firstName = user?.full_name?.split(" ")[0];
