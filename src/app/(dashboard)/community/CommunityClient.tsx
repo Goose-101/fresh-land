@@ -546,8 +546,33 @@ function Composer({
   };
 
   const handleFile = (f: File | null) => {
+    if (!f) {
+      setFile(null);
+      setPreview(null);
+      return;
+    }
+    const MAX_BYTES = 10 * 1024 * 1024;
+    if (f.size > MAX_BYTES) {
+      onError(
+        t(
+          "community.photoTooLarge",
+          { size: (f.size / 1024 / 1024).toFixed(1) },
+          `Photo is ${(f.size / 1024 / 1024).toFixed(1)} MB. Maximum is 10 MB.`
+        )
+      );
+      setFile(null);
+      setPreview(null);
+      return;
+    }
+    if (!f.type.startsWith("image/")) {
+      onError(
+        t("community.notAnImage", undefined, "Please select an image file (JPG, PNG, etc.).")
+      );
+      setFile(null);
+      setPreview(null);
+      return;
+    }
     setFile(f);
-    if (!f) return setPreview(null);
     const url = URL.createObjectURL(f);
     setPreview(url);
   };
@@ -574,11 +599,11 @@ function Composer({
     const hangGuard = setTimeout(() => {
       setSaving(false);
       setDebugError(
-        `Still working on "${stageRef.current || "starting"}" after 75s. ` +
+        `Still working on "${stageRef.current || "starting"}". ` +
           `If your post doesn't appear shortly, please refresh the page.`
       );
       onRefetch?.();
-    }, 75000);
+    }, 130000);
 
     const fail = (msg: string) => {
       clearTimeout(hangGuard);
@@ -599,11 +624,17 @@ function Composer({
 
       let image_url: string | null = null;
       if (file) {
-        setStageBoth(`uploading photo (${Math.round(file.size / 1024)}KB)`);
+        const sizeKB = Math.round(file.size / 1024);
+        setStageBoth(`uploading photo (${sizeKB}KB)`);
         const ext = file.name.split(".").pop() || "jpg";
         const path = `${resolvedUserId}/${Date.now()}.${ext}`;
         const uploadController = new AbortController();
-        const uploadTimeout = setTimeout(() => uploadController.abort(), 60000);
+        // Scale timeout to file size: ~1s/100KB plus a 5s buffer. A 10MB
+        // upload gets ~105s on a slow connection; a 200KB upload gets ~7s.
+        const uploadMs = Math.min(120_000, Math.max(8_000, sizeKB * 10 + 5_000));
+        const uploadTimeout = setTimeout(() => uploadController.abort(), uploadMs);
+        let uploadOk = false;
+        let uploadErrorMsg = "";
         try {
           const { error: uploadErr } = await supabase.storage
             .from("community-photos")
@@ -613,21 +644,27 @@ function Composer({
               // @ts-expect-error supabase-js v2 forwards unknown options to fetch
               signal: uploadController.signal,
             });
-          if (uploadErr) {
-            return fail(`Upload failed: ${uploadErr.message}`);
+          if (!uploadErr) {
+            uploadOk = true;
+          } else {
+            uploadErrorMsg = uploadErr.message;
+            console.warn("[community-publish] upload error", uploadErr.message);
           }
         } catch (uploadEx: any) {
-          if (uploadController.signal.aborted) {
-            return fail(
-              "Photo upload took too long (60s). Try a smaller image or a stronger connection."
-            );
-          }
-          return fail(`Upload failed: ${uploadEx?.message || String(uploadEx)}`);
+          uploadErrorMsg = uploadController.signal.aborted ? "timeout" : uploadEx?.message || "unknown";
+          console.warn("[community-publish] upload exception", uploadErrorMsg);
         } finally {
           clearTimeout(uploadTimeout);
         }
-        const { data: pub } = supabase.storage.from("community-photos").getPublicUrl(path);
-        image_url = pub.publicUrl;
+        if (uploadOk) {
+          const { data: pub } = supabase.storage.from("community-photos").getPublicUrl(path);
+          image_url = pub.publicUrl;
+        } else {
+          // Show a friendly error instead of silently publishing without the photo
+          return fail(
+            `Photo upload failed (${uploadErrorMsg}). Try again, or remove the photo to post just the text.`
+          );
+        }
       }
 
       const insertPayload: Record<string, any> = {
