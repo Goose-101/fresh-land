@@ -3,6 +3,11 @@ import { ResourceFilter } from "@/components/resources/ResourceFilter";
 import { getServerMessages, resolveKey, formatMessage } from "@/lib/i18n";
 import type { Resource, Category } from "@/types";
 
+// Always fetch fresh data so new resources show up immediately after being
+// added in Supabase — no rebuild needed.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export const metadata = { title: "Resources — Fresh Land" };
 
 export default async function ResourcesPage({

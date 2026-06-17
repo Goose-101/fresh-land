@@ -5,6 +5,10 @@ import { getServerMessages, resolveKey } from "@/lib/i18n";
 import { DisclaimerBanner, categoryDisclaimerKind } from "@/components/ui/DisclaimerBanner";
 import type { Resource, Category } from "@/types";
 
+// Always fetch fresh so new resources added in Supabase show up immediately.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function CategoryPage({
   params,
 }: {

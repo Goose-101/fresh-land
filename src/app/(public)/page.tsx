@@ -27,6 +27,10 @@ const CATEGORY_ICONS: Record<string, any> = {
   womens: HeartHandshake,
 };
 
+// Always fetch fresh so new resources show up immediately.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function HomePage() {
   const supabase = await createClient();
   const { messages } = await getServerMessages();
