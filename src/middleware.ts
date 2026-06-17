@@ -4,12 +4,6 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 const PROTECTED = ["/dashboard", "/pathway", "/saved", "/community", "/settings"];
 const AUTH_PAGES = ["/login", "/signup"];
 
-// Drop maxAge + expires so cookies become session-only (clear on browser close).
-function toSessionCookieOptions(options: CookieOptions): CookieOptions {
-  const { maxAge: _ma, expires: _ex, ...rest } = options;
-  return rest;
-}
-
 export async function middleware(req: NextRequest) {
   let res = NextResponse.next({ request: req });
   const supabase = createServerClient(
@@ -21,7 +15,7 @@ export async function middleware(req: NextRequest) {
         setAll: (cookiesToSet: { name: string; value: string; options: CookieOptions }[]) => {
           cookiesToSet.forEach(({ name, value, options }) => {
             req.cookies.set(name, value);
-            res.cookies.set(name, value, toSessionCookieOptions(options));
+            res.cookies.set(name, value, options);
           });
         },
       },
