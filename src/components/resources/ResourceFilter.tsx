@@ -49,8 +49,8 @@ export function ResourceFilter({ resources, categories, initialCategory }: Props
   const [weekend, setWeekend] = useState(false);
   const [evening, setEvening] = useState(false);
   const [phoneIntake, setPhoneIntake] = useState(false);
-  const [freeOnly, setFreeOnly] = useState(true);
-  const [undocFriendly, setUndocFriendly] = useState(true);
+  const [freeOnly, setFreeOnly] = useState(false);
+  const [undocFriendly, setUndocFriendly] = useState(false);
 
   useEffect(() => {
     setCity(user?.city || "Atlanta");
@@ -105,9 +105,7 @@ export function ResourceFilter({ resources, categories, initialCategory }: Props
 
   const activeFilterCount =
     langs.length +
-    [walkIn, weekend, evening, phoneIntake].filter(Boolean).length +
-    (freeOnly ? 0 : 1) +
-    (undocFriendly ? 0 : 1);
+    [walkIn, weekend, evening, phoneIntake, freeOnly, undocFriendly].filter(Boolean).length;
 
   const clearAll = () => {
     setLangs([]);
@@ -115,8 +113,8 @@ export function ResourceFilter({ resources, categories, initialCategory }: Props
     setWeekend(false);
     setEvening(false);
     setPhoneIntake(false);
-    setFreeOnly(true);
-    setUndocFriendly(true);
+    setFreeOnly(false);
+    setUndocFriendly(false);
   };
 
   const sortLabel =
