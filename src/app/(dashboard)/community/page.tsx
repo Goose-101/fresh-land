@@ -2,6 +2,10 @@ import { createClient } from "@/lib/supabase/server";
 import { CommunityClient } from "./CommunityClient";
 import { getServerMessages, resolveKey } from "@/lib/i18n";
 
+// Always fetch fresh so newly added resources show up in the org credit search.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export const metadata = { title: "Community — Fresh Land" };
 
 export default async function CommunityPage() {
@@ -20,7 +24,7 @@ export default async function CommunityPage() {
       .order("created_at", { ascending: false })
       .limit(50),
     supabase.from("categories").select("*").eq("is_active", true).order("display_order"),
-    supabase.from("resources").select("id, name, phone").eq("is_active", true).order("name").limit(500),
+    supabase.from("resources").select("id, name, phone").eq("is_active", true).order("name").limit(2000),
     supabase
       .from("community_replies")
       .select("*, author:profiles(full_name, avatar_url)")
