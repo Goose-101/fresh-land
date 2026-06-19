@@ -9,10 +9,15 @@ import { LogIn, Menu } from "lucide-react";
 import { useState } from "react";
 import { useT } from "@/components/I18nProvider";
 
-export function Header() {
+export function Header({ initialSignedIn = false }: { initialSignedIn?: boolean }) {
   const { user } = useAppStore();
   const [menuOpen, setMenuOpen] = useState(false);
   const { t } = useT();
+  // Use server-side sign-in info as a fallback so the header doesn't flash
+  // "Sign in" buttons while the client store is hydrating. If we know they're
+  // signed in (server check), treat them as signed in even before the store
+  // has a full profile loaded.
+  const isSignedIn = !!user || initialSignedIn;
 
   return (
     <header className="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-border">
@@ -25,7 +30,7 @@ export function Header() {
           <Link href="/categories/legal" className="px-3 py-2 text-sm font-medium text-text-secondary hover:text-primary">
             {t("nav.categories")}
           </Link>
-          {user && (
+          {isSignedIn && (
             <>
               <Link href="/dashboard" className="px-3 py-2 text-sm font-medium text-text-secondary hover:text-primary">
                 {t("nav.dashboard")}
@@ -48,7 +53,7 @@ export function Header() {
         <div className="ml-auto flex items-center gap-2">
           <ThemeToggle />
           <LanguageSelector />
-          {user ? (
+          {isSignedIn ? (
             <Link href="/dashboard">
               <Button variant="primary" size="sm">{t("nav.myDashboard")}</Button>
             </Link>
@@ -77,7 +82,7 @@ export function Header() {
         <div className="md:hidden border-t border-border bg-white px-4 py-3 flex flex-col gap-1">
           <Link href="/resources" className="py-2 text-sm font-medium">{t("nav.resources")}</Link>
           <Link href="/categories/legal" className="py-2 text-sm font-medium">{t("nav.categories")}</Link>
-          {user && (
+          {isSignedIn && (
             <>
               <Link href="/dashboard" className="py-2 text-sm font-medium">{t("nav.dashboard")}</Link>
               <Link href="/pathway" className="py-2 text-sm font-medium">{t("nav.pathway")}</Link>
@@ -86,7 +91,7 @@ export function Header() {
               <Link href="/settings" className="py-2 text-sm font-medium">{t("nav.settings")}</Link>
             </>
           )}
-          {!user && <Link href="/login" className="py-2 text-sm font-medium">{t("action.signIn")}</Link>}
+          {!isSignedIn && <Link href="/login" className="py-2 text-sm font-medium">{t("action.signIn")}</Link>}
         </div>
       )}
     </header>

@@ -78,10 +78,16 @@ export default async function HomePage() {
             {t("home.subtagline")}
           </p>
           <div className="mt-8 flex flex-wrap gap-3 justify-center">
-            {needsOnboarding ? (
-              <Link href="/onboarding?start=1">
-                <Button size="lg">{t("action.continueSetup")}</Button>
-              </Link>
+            {user ? (
+              needsOnboarding ? (
+                <Link href="/onboarding?start=1">
+                  <Button size="lg">{t("action.continueSetup")}</Button>
+                </Link>
+              ) : (
+                <Link href="/dashboard">
+                  <Button size="lg">{t("nav.myDashboard")}</Button>
+                </Link>
+              )
             ) : (
               <Link href="/signup">
                 <Button size="lg">{t("action.getStarted")}</Button>
