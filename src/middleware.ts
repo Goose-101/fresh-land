@@ -2,7 +2,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
 const PROTECTED = ["/dashboard", "/pathway", "/saved", "/community", "/settings"];
-const AUTH_PAGES = ["/login", "/signup"];
+
+// Drop maxAge + expires so cookies become session-only (clear on browser close).
+function toSessionCookieOptions(options: CookieOptions): CookieOptions {
+  const { maxAge: _ma, expires: _ex, ...rest } = options;
+  return rest;
+}
 
 export async function middleware(req: NextRequest) {
   let res = NextResponse.next({ request: req });
@@ -15,7 +20,7 @@ export async function middleware(req: NextRequest) {
         setAll: (cookiesToSet: { name: string; value: string; options: CookieOptions }[]) => {
           cookiesToSet.forEach(({ name, value, options }) => {
             req.cookies.set(name, value);
-            res.cookies.set(name, value, options);
+            res.cookies.set(name, value, toSessionCookieOptions(options));
           });
         },
       },
@@ -28,7 +33,6 @@ export async function middleware(req: NextRequest) {
 
   const path = req.nextUrl.pathname;
   const isProtected = PROTECTED.some((p) => path.startsWith(p));
-  const isAuthPage = AUTH_PAGES.some((p) => path.startsWith(p));
   const isAdmin = path.startsWith("/admin");
   const isOnboarding = path.startsWith("/onboarding");
 
@@ -38,24 +42,17 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if ((isAuthPage || path === "/onboarding") && user) {
+  // Note: previously we redirected signed-in users away from /login and
+  // /signup to the dashboard. We don't anymore — clicking Sign in or
+  // Sign up should always show the email/password form, no matter what.
+  // That way users can always re-authenticate or sign in as someone else.
+
+  if (path === "/onboarding" && user) {
     const { data: profile } = await supabase
       .from("profiles")
       .select("onboarding_complete")
       .eq("id", user.id)
       .single();
-
-    if (isAuthPage) {
-      const url = req.nextUrl.clone();
-      url.search = "";
-      if (profile?.onboarding_complete) {
-        url.pathname = "/dashboard";
-      } else {
-        url.pathname = "/onboarding";
-        url.searchParams.set("start", "1");
-      }
-      return NextResponse.redirect(url);
-    }
     if (isOnboarding && profile?.onboarding_complete) {
       const url = req.nextUrl.clone();
       url.pathname = "/dashboard";
