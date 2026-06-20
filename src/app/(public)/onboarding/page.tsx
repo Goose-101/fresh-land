@@ -52,35 +52,56 @@ export default function OnboardingPage() {
 
   const finish = async () => {
     setSaving(true);
+    // Hard cap: if the save isn't done in 5s, push forward anyway so the
+    // user is never trapped on this screen. Their profile may be partial,
+    // but they can correct it later in Settings.
+    const safetyNet = setTimeout(() => {
+      router.push("/dashboard");
+      router.refresh();
+    }, 5000);
+
     try {
       const supabase = createClient();
-      const { data: { user: authUser }, error: authErr } = await supabase.auth.getUser();
-      if (authErr || !authUser) {
+      const withTimeout = <T,>(p: PromiseLike<T>, ms: number): Promise<T> =>
+        Promise.race<T>([
+          Promise.resolve(p),
+          new Promise<T>((_, rej) => setTimeout(() => rej(new Error("timeout")), ms)),
+        ]);
+
+      const authResult = await withTimeout(supabase.auth.getUser(), 3000);
+      const authUser = authResult.data.user;
+      if (authResult.error || !authUser) {
+        clearTimeout(safetyNet);
         router.push("/login");
         return;
       }
-      const { data, error } = await supabase
-        .from("profiles")
-        .update({
-          preferred_language: language,
-          city,
-          needs,
-          onboarding_complete: true,
-        })
-        .eq("id", authUser.id)
-        .select()
-        .single();
+      const updateResult = await withTimeout(
+        supabase
+          .from("profiles")
+          .update({
+            preferred_language: language,
+            city,
+            needs,
+            onboarding_complete: true,
+          })
+          .eq("id", authUser.id)
+          .select()
+          .single(),
+        3000
+      );
+      const { data, error } = updateResult;
       if (error) {
         console.error("[onboarding] finish failed", error.message);
-        // Even if the profile update fails, push forward — middleware will
-        // re-route if needed and we don't want the user trapped on this page.
+        // Push forward even if save fails — they can complete profile later.
       } else if (data) {
         setUser(data);
       }
+      clearTimeout(safetyNet);
       router.push("/dashboard");
       router.refresh();
     } catch (e: any) {
       console.error("[onboarding] finish exception", e?.message);
+      clearTimeout(safetyNet);
       router.push("/dashboard");
     } finally {
       setSaving(false);
