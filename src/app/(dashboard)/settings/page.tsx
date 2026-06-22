@@ -108,10 +108,11 @@ export default function SettingsPage() {
 
   const [saving, setSaving] = useState(false);
 
-  // When user isn't in the Zustand store, check Supabase directly and self-heal
-  // by fetching the profile and populating the store. This makes Settings work
-  // even if AuthProvider didn't successfully hydrate the user (e.g. RLS issue,
-  // network blip during init).
+  // When user isn't in the Zustand store, check Supabase directly and self-heal.
+  // Hard cap at 3 seconds — if Supabase doesn't respond, we proceed anyway with
+  // a minimal user (constructed from auth metadata) so the UI never hangs.
+  // The middleware already verified the user is signed in to reach this page,
+  // so we can trust that and render the form.
   useEffect(() => {
     if (user) {
       setReady(true);
@@ -119,16 +120,52 @@ export default function SettingsPage() {
     }
     let cancelled = false;
     const supabase = createClient();
+
+    // Failsafe: never let this page hang. After 3s, proceed regardless.
+    const failsafe = setTimeout(() => {
+      if (!cancelled) setReady(true);
+    }, 3000);
+
     (async () => {
       try {
         const { data: { user: authUser } } = await supabase.auth.getUser();
         if (cancelled) return;
         if (!authUser) {
-          // Truly not signed in
+          clearTimeout(failsafe);
           setReady(true);
           return;
         }
-        // Signed in but profile not in store — fetch it and populate.
+        const fallbackName =
+          (authUser.user_metadata?.full_name as string)?.trim() ||
+          (authUser.user_metadata?.name as string)?.trim() ||
+          authUser.email?.split("@")[0] ||
+          "Member";
+
+        // Set a minimal user immediately so the form renders even if the
+        // profile query is slow.
+        setUser({
+          id: authUser.id,
+          full_name: fallbackName,
+          email: authUser.email || "",
+          avatar_url: null,
+          preferred_language: "en",
+          city: "Atlanta",
+          state: "GA",
+          zip: null,
+          needs: [],
+          immigration_status: null,
+          has_children: false,
+          english_comfort: "medium",
+          years_in_us: null,
+          is_admin: false,
+          onboarding_complete: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        } as any);
+        clearTimeout(failsafe);
+        setReady(true);
+
+        // Then fetch the real profile in the background.
         const { data: profile } = await supabase
           .from("profiles")
           .select("*")
@@ -137,31 +174,15 @@ export default function SettingsPage() {
         if (cancelled) return;
         if (profile) {
           setUser(profile);
-        } else {
-          // No profile row exists — create a minimal one inline.
-          const fallbackName =
-            (authUser.user_metadata?.full_name as string)?.trim() ||
-            (authUser.user_metadata?.name as string)?.trim() ||
-            authUser.email?.split("@")[0] ||
-            "Member";
-          const { data: created } = await supabase
-            .from("profiles")
-            .insert({
-              id: authUser.id,
-              email: authUser.email,
-              full_name: fallbackName,
-            })
-            .select("*")
-            .maybeSingle();
-          if (created) setUser(created);
         }
-        setReady(true);
       } catch {
+        clearTimeout(failsafe);
         if (!cancelled) setReady(true);
       }
     })();
     return () => {
       cancelled = true;
+      clearTimeout(failsafe);
     };
   }, [user, setUser]);
 
@@ -318,16 +339,15 @@ export default function SettingsPage() {
     );
   }
 
+  // If we still don't have a user after ready, just keep showing the loader.
+  // We won't reach this normally — the middleware blocks unsigned users from
+  // /settings, and the effect above populates a minimal user. But keep it as
+  // a safety net so we never flash a "Sign in" prompt at an actually-signed-in
+  // user.
   if (!user) {
     return (
-      <div className="max-w-3xl mx-auto p-8 text-center">
-        <h1 className="text-2xl font-semibold">{t("settings.title")}</h1>
-        <p className="text-text-secondary mt-2">{t("auth.welcomeBackBody")}</p>
-        <Link href="/login" className="inline-block mt-5">
-          <Button>
-            <LogIn className="h-4 w-4" /> {t("action.signIn")}
-          </Button>
-        </Link>
+      <div className="max-w-3xl mx-auto p-8 text-center text-text-muted">
+        <Loader2 className="h-6 w-6 animate-spin mx-auto" />
       </div>
     );
   }
