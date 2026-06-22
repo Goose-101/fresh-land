@@ -35,6 +35,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      // Force a fresh sign-in each browser session.
+      // sessionStorage clears when the browser closes. If we have a session
+      // (persistent cookies) but no marker, this is a NEW browser session →
+      // sign them out so they have to log in again.
+      // While actively using the app, the marker stays set and they remain
+      // signed in across page navigations.
+      try {
+        const sessionMarker = sessionStorage.getItem("fl:auth:active");
+        if (!sessionMarker) {
+          await supabase.auth.signOut();
+          return;
+        }
+      } catch {
+        // sessionStorage unavailable — fail open, keep them signed in.
+      }
+
       let { data: profile } = await supabase
         .from("profiles")
         .select("*")
@@ -72,10 +88,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "SIGNED_OUT") {
+        try { sessionStorage.removeItem("fl:auth:active"); } catch {}
         setUser(null);
         setSavedIds([]);
         setNotifications([]);
       } else if (event === "SIGNED_IN" && session) {
+        // Mark this browser session as active. If the browser closes, this
+        // marker is wiped and the next session-init forces a fresh sign-in.
+        try { sessionStorage.setItem("fl:auth:active", "1"); } catch {}
         const { data: profile } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
         if (profile) setUser(profile);
       }

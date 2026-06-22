@@ -1,13 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-// Strip maxAge + expires so cookies become session-only.
-// Sessions die when the browser closes; user must sign in again.
-function toSessionCookieOptions(options: CookieOptions): CookieOptions {
-  const { maxAge: _ma, expires: _ex, ...rest } = options;
-  return rest;
-}
-
 export async function createClient() {
   const cookieStore = await cookies();
   return createServerClient(
@@ -21,7 +14,7 @@ export async function createClient() {
         setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
           try {
             cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, toSessionCookieOptions(options))
+              cookieStore.set(name, value, options)
             );
           } catch {}
         },
