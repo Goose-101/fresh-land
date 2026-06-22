@@ -108,34 +108,62 @@ export default function SettingsPage() {
 
   const [saving, setSaving] = useState(false);
 
+  // When user isn't in the Zustand store, check Supabase directly and self-heal
+  // by fetching the profile and populating the store. This makes Settings work
+  // even if AuthProvider didn't successfully hydrate the user (e.g. RLS issue,
+  // network blip during init).
   useEffect(() => {
-    // If we already have the user, ready immediately.
     if (user) {
       setReady(true);
       return;
     }
-    // Otherwise verify the session is really gone by asking Supabase directly.
-    // If a session exists, keep waiting on AuthProvider to populate the user.
-    // Only show the sign-in prompt when there's actually no session.
     let cancelled = false;
     const supabase = createClient();
-    const fallback = setTimeout(() => {
-      if (!cancelled) setReady(true);
-    }, 8000);
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (cancelled) return;
-      if (!session?.user) {
-        clearTimeout(fallback);
+    (async () => {
+      try {
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        if (cancelled) return;
+        if (!authUser) {
+          // Truly not signed in
+          setReady(true);
+          return;
+        }
+        // Signed in but profile not in store — fetch it and populate.
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", authUser.id)
+          .maybeSingle();
+        if (cancelled) return;
+        if (profile) {
+          setUser(profile);
+        } else {
+          // No profile row exists — create a minimal one inline.
+          const fallbackName =
+            (authUser.user_metadata?.full_name as string)?.trim() ||
+            (authUser.user_metadata?.name as string)?.trim() ||
+            authUser.email?.split("@")[0] ||
+            "Member";
+          const { data: created } = await supabase
+            .from("profiles")
+            .insert({
+              id: authUser.id,
+              email: authUser.email,
+              full_name: fallbackName,
+            })
+            .select("*")
+            .maybeSingle();
+          if (created) setUser(created);
+        }
         setReady(true);
+      } catch {
+        if (!cancelled) setReady(true);
       }
-    });
-
+    })();
     return () => {
       cancelled = true;
-      clearTimeout(fallback);
     };
-  }, [user]);
+  }, [user, setUser]);
 
   useEffect(() => {
     if (!user) return;
