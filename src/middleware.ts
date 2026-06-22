@@ -60,21 +60,10 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  if (user && isProtected) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("onboarding_complete")
-      .eq("id", user.id)
-      .single();
-    if (!profile?.onboarding_complete) {
-      // Don't trap incomplete users on /onboarding — send them home so they
-      // can choose to continue setup explicitly.
-      const url = req.nextUrl.clone();
-      url.pathname = "/";
-      url.search = "";
-      return NextResponse.redirect(url);
-    }
-  }
+  // Once signed in, users can access every protected page. Onboarding is
+  // optional — they can complete it any time via the "Continue setup"
+  // prompt on the homepage. This avoids blocking real users on a flag
+  // that may not save reliably.
 
   if (isAdmin && user) {
     const { data: profile } = await supabase
