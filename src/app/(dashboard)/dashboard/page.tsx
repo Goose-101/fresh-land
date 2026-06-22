@@ -17,37 +17,65 @@ export default async function DashboardPage() {
   const { data: { user: authUser } } = await supabase.auth.getUser();
   if (!authUser) return null;
 
+  // Each query is wrapped so a single failure doesn't crash the whole page.
+  // Missing rows or table errors fall back to safe defaults.
+  const safe = async (p: any, fallback: any): Promise<any> => {
+    try {
+      const result = await p;
+      return result;
+    } catch {
+      return fallback;
+    }
+  };
+
   const [
-    { data: profile },
-    { count: savedCount },
-    { data: savedPreview },
-    { data: notifs },
-    { data: newResources },
-    { data: progress },
-    { data: pathway },
+    profileResult,
+    savedCountResult,
+    savedPreviewResult,
+    notifsResult,
+    newResourcesResult,
+    progressResult,
+    pathwayResult,
   ] = await Promise.all([
-    supabase.from("profiles").select("*").eq("id", authUser.id).single(),
-    supabase.from("saved_resources").select("id", { count: "exact", head: true }).eq("user_id", authUser.id),
-    supabase
-      .from("saved_resources")
-      .select("id, saved_at, resource:resources(*, category:categories(*))")
-      .eq("user_id", authUser.id)
-      .order("saved_at", { ascending: false })
-      .limit(3),
-    supabase.from("notifications").select("*").eq("user_id", authUser.id).eq("is_read", false).order("created_at", { ascending: false }).limit(3),
-    supabase
-      .from("resources")
-      .select("*, category:categories(*)")
-      .eq("is_active", true)
-      .order("created_at", { ascending: false })
-      .limit(4),
-    supabase.from("user_progress").select("id", { count: "exact", head: true }).eq("user_id", authUser.id),
-    supabase.from("pathways").select("*, steps:pathway_steps(*)").eq("is_active", true).limit(1).maybeSingle(),
+    safe(supabase.from("profiles").select("*").eq("id", authUser.id).maybeSingle(), { data: null }),
+    safe(supabase.from("saved_resources").select("id", { count: "exact", head: true }).eq("user_id", authUser.id), { count: 0 }),
+    safe(
+      supabase
+        .from("saved_resources")
+        .select("id, saved_at, resource:resources(*, category:categories(*))")
+        .eq("user_id", authUser.id)
+        .order("saved_at", { ascending: false })
+        .limit(3),
+      { data: [] }
+    ),
+    safe(
+      supabase.from("notifications").select("*").eq("user_id", authUser.id).eq("is_read", false).order("created_at", { ascending: false }).limit(3),
+      { data: [] }
+    ),
+    safe(
+      supabase
+        .from("resources")
+        .select("*, category:categories(*)")
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(4),
+      { data: [] }
+    ),
+    safe(supabase.from("user_progress").select("id", { count: "exact", head: true }).eq("user_id", authUser.id), { count: 0 }),
+    safe(supabase.from("pathways").select("*, steps:pathway_steps(*)").eq("is_active", true).limit(1).maybeSingle(), { data: null }),
   ]);
 
-  const firstName = profile?.full_name?.split(" ")[0] || t("dashboard.fallbackName");
+  const profile = (profileResult as any).data;
+  const savedCount = (savedCountResult as any).count;
+  const savedPreview = (savedPreviewResult as any).data;
+  const notifs = (notifsResult as any).data;
+  const newResources = (newResourcesResult as any).data;
+  const progress = (progressResult as any).count;
+  const pathway = (pathwayResult as any).data;
+
+  const firstName = profile?.full_name?.split(" ")[0] || authUser.email?.split("@")[0] || t("dashboard.fallbackName");
   const daysOn = profile?.created_at ? differenceInDays(new Date(), new Date(profile.created_at)) : 0;
-  const stepsDone = (progress as any)?.count || 0;
+  const stepsDone = progress || 0;
   const totalSteps = pathway?.steps?.length || 0;
   const pathwayProgress = totalSteps ? Math.round((stepsDone / totalSteps) * 100) : 0;
 
@@ -138,7 +166,7 @@ export default async function DashboardPage() {
             <Bell className="h-4 w-4 text-primary" /> {t("dashboard.notifications")}
           </h2>
           <div className="bg-white rounded-card border border-border divide-y divide-border">
-            {notifs.map((n) => (
+            {notifs.map((n: any) => (
               <div key={n.id} className="p-4">
                 <p className="font-medium text-sm">{n.title}</p>
                 <p className="text-xs text-text-secondary mt-1">{n.message}</p>
