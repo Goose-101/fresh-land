@@ -85,26 +85,33 @@ export function Sidebar() {
           <span className="text-xs text-text-muted">Theme</span>
           <ThemeToggle />
         </div>
-        {user && (
-          <div className="flex items-center gap-3 px-2 py-2">
-            <div className="h-9 w-9 rounded-full bg-primary-light text-primary-dark grid place-items-center font-semibold text-sm">
-              {(
-                user.preferred_name?.trim() ||
-                user.full_name?.trim() ||
-                user.email?.split("@")[0] ||
-                "?"
-              )[0]?.toUpperCase()}
+        {user && (() => {
+          const displayName =
+            user.preferred_name?.trim() ||
+            user.full_name?.trim() ||
+            user.email?.split("@")[0] ||
+            "there";
+          const firstName = displayName.split(" ")[0];
+          const hour = new Date().getHours();
+          const greeting =
+            hour < 12 ? "Good morning" :
+            hour < 17 ? "Good afternoon" :
+            hour < 21 ? "Good evening" :
+            "Hello";
+          return (
+            <div className="flex items-center gap-3 px-2 py-2">
+              <div className="h-9 w-9 rounded-full bg-primary-light text-primary-dark grid place-items-center font-semibold text-sm shrink-0">
+                {displayName[0]?.toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">
+                  {greeting}, {firstName}
+                </p>
+                <p className="text-xs text-text-muted truncate">{user.city || "Atlanta"}, {user.state || "GA"}</p>
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">
-                {user.preferred_name?.trim() ||
-                  user.full_name?.trim() ||
-                  user.email?.split("@")[0]}
-              </p>
-              <p className="text-xs text-text-muted truncate">{user.city || "Atlanta"}, {user.state || "GA"}</p>
-            </div>
-          </div>
-        )}
+          );
+        })()}
         <a
           href="/api/auth/signout"
           onClick={onSignOutClick}

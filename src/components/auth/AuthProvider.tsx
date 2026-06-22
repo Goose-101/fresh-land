@@ -44,14 +44,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sessionStorage.setItem("fl:auth:active", "1");
       } catch {}
 
+      // Use a minimal user immediately so the UI never thinks they're signed out
+      // while we wait for the profile fetch. We'll replace it with the real
+      // profile once it arrives.
+      const fallbackName =
+        nameFromAuth(session.user.user_metadata) ||
+        session.user.email?.split("@")[0] ||
+        "Member";
+      const minimalProfile = {
+        id: session.user.id,
+        full_name: fallbackName,
+        email: session.user.email || "",
+        avatar_url: (session.user.user_metadata?.avatar_url as string) || null,
+        preferred_language: "en",
+        city: "Atlanta",
+        state: "GA",
+        zip: null,
+        needs: [],
+        immigration_status: null,
+        has_children: false,
+        english_comfort: "medium",
+        years_in_us: null,
+        is_admin: false,
+        onboarding_complete: false,
+        created_at: session.user.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      } as any;
+      setUser(minimalProfile);
+
       let { data: profile } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", session.user.id)
-        .single();
+        .maybeSingle();
 
-      // Self-heal: if the profile is missing a name, copy it from the auth
-      // metadata so the sidebar shows the real name instead of "You".
+      // If profile row doesn't exist yet, create it now (self-heal).
+      if (!profile) {
+        const { data: created } = await supabase
+          .from("profiles")
+          .insert({
+            id: session.user.id,
+            email: session.user.email,
+            full_name: fallbackName,
+            avatar_url: minimalProfile.avatar_url,
+          })
+          .select("*")
+          .maybeSingle();
+        if (created) profile = created;
+      }
+
+      // Self-heal: if the profile is missing a name, copy it from auth metadata.
       if (profile && !profile.full_name?.trim()) {
         const recovered = nameFromAuth(session.user.user_metadata);
         if (recovered) {
@@ -60,7 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             .update({ full_name: recovered })
             .eq("id", session.user.id)
             .select("*")
-            .single();
+            .maybeSingle();
           if (updated) profile = updated;
         }
       }
@@ -89,7 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Mark this browser session as active. If the browser closes, this
         // marker is wiped and the next session-init forces a fresh sign-in.
         try { sessionStorage.setItem("fl:auth:active", "1"); } catch {}
-        const { data: profile } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
+        const { data: profile } = await supabase.from("profiles").select("*").eq("id", session.user.id).maybeSingle();
         if (profile) setUser(profile);
       }
     });
