@@ -109,12 +109,32 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => setReady(true), 1500);
-    return () => clearTimeout(timer);
-  }, []);
+    // If we already have the user, ready immediately.
+    if (user) {
+      setReady(true);
+      return;
+    }
+    // Otherwise verify the session is really gone by asking Supabase directly.
+    // If a session exists, keep waiting on AuthProvider to populate the user.
+    // Only show the sign-in prompt when there's actually no session.
+    let cancelled = false;
+    const supabase = createClient();
+    const fallback = setTimeout(() => {
+      if (!cancelled) setReady(true);
+    }, 8000);
 
-  useEffect(() => {
-    if (user) setReady(true);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (cancelled) return;
+      if (!session?.user) {
+        clearTimeout(fallback);
+        setReady(true);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      clearTimeout(fallback);
+    };
   }, [user]);
 
   useEffect(() => {
