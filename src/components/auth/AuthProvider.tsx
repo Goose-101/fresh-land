@@ -35,21 +35,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Force a fresh sign-in each browser session.
-      // sessionStorage clears when the browser closes. If we have a session
-      // (persistent cookies) but no marker, this is a NEW browser session →
-      // sign them out so they have to log in again.
-      // While actively using the app, the marker stays set and they remain
-      // signed in across page navigations.
+      // Mark this session as active. The marker stays set during the entire
+      // browser session and clears automatically when the browser closes.
+      // We don't sign users out if the marker is missing — that would log out
+      // existing users who signed in before this code was deployed. Users
+      // stay signed in across navigations + reloads, and can sign out manually.
       try {
-        const sessionMarker = sessionStorage.getItem("fl:auth:active");
-        if (!sessionMarker) {
-          await supabase.auth.signOut();
-          return;
-        }
-      } catch {
-        // sessionStorage unavailable — fail open, keep them signed in.
-      }
+        sessionStorage.setItem("fl:auth:active", "1");
+      } catch {}
 
       let { data: profile } = await supabase
         .from("profiles")
