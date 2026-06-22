@@ -22,19 +22,37 @@ export function LoginForm() {
     e.preventDefault();
     setErr("");
     setLoading(true);
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (error) {
-      if (error.message.toLowerCase().includes("email")) {
-        setErr(t("auth.confirmEmail"));
-      } else {
-        setErr(t("auth.invalidCreds"));
+    try {
+      const supabase = createClient();
+      // Hard cap: auth shouldn't take more than 10 seconds. Bail out and
+      // show an error if it hangs longer.
+      const authPromise = supabase.auth.signInWithPassword({ email, password });
+      const timeoutPromise = new Promise<{ error: any }>((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), 10000)
+      );
+      const { error } = await Promise.race([authPromise, timeoutPromise]);
+      if (error) {
+        if (error.message?.toLowerCase().includes("email")) {
+          setErr(t("auth.confirmEmail"));
+        } else if (error.message === "timeout") {
+          setErr("Sign-in is taking too long. Please try again.");
+        } else {
+          setErr(t("auth.invalidCreds"));
+        }
+        setLoading(false);
+        return;
       }
-      return;
+      // Use full navigation so the new auth cookies are picked up immediately
+      // — faster + more reliable than router.push + router.refresh.
+      window.location.href = "/dashboard";
+    } catch (e: any) {
+      setErr(
+        e?.message === "timeout"
+          ? "Sign-in is taking too long. Please try again."
+          : t("auth.invalidCreds")
+      );
+      setLoading(false);
     }
-    router.push("/dashboard");
-    router.refresh();
   };
 
   return (
