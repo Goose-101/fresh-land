@@ -23,34 +23,34 @@ export function Header({ initialSignedIn = false }: { initialSignedIn?: boolean 
     <header className="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-border">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-5 flex items-center gap-4">
         <Logo />
-        <nav className="hidden md:flex items-center gap-1 ml-6">
-          <Link href="/resources" className="px-3 py-2 text-sm font-medium text-text-secondary hover:text-primary">
+        <nav className="hidden md:flex items-center gap-0.5 ml-4 flex-1 min-w-0">
+          <Link href="/resources" className="px-2.5 py-2 text-sm font-medium text-text-secondary hover:text-primary whitespace-nowrap">
             {t("nav.resources")}
           </Link>
-          <Link href="/categories/legal" className="px-3 py-2 text-sm font-medium text-text-secondary hover:text-primary">
+          <Link href="/categories/legal" className="px-2.5 py-2 text-sm font-medium text-text-secondary hover:text-primary whitespace-nowrap">
             {t("nav.categories")}
           </Link>
           {isSignedIn && (
             <>
-              <Link href="/dashboard" className="px-3 py-2 text-sm font-medium text-text-secondary hover:text-primary">
+              <Link href="/dashboard" className="px-2.5 py-2 text-sm font-medium text-text-secondary hover:text-primary whitespace-nowrap">
                 {t("nav.dashboard")}
               </Link>
-              <Link href="/pathway" className="px-3 py-2 text-sm font-medium text-text-secondary hover:text-primary">
+              <Link href="/pathway" className="hidden xl:inline-block px-2.5 py-2 text-sm font-medium text-text-secondary hover:text-primary whitespace-nowrap">
                 {t("nav.pathway")}
               </Link>
-              <Link href="/community" className="px-3 py-2 text-sm font-medium text-text-secondary hover:text-primary">
+              <Link href="/community" className="hidden xl:inline-block px-2.5 py-2 text-sm font-medium text-text-secondary hover:text-primary whitespace-nowrap">
                 {t("nav.community")}
               </Link>
-              <Link href="/saved" className="px-3 py-2 text-sm font-medium text-text-secondary hover:text-primary">
+              <Link href="/saved" className="hidden xl:inline-block px-2.5 py-2 text-sm font-medium text-text-secondary hover:text-primary whitespace-nowrap">
                 {t("nav.saved")}
               </Link>
-              <Link href="/settings" className="px-3 py-2 text-sm font-medium text-text-secondary hover:text-primary">
+              <Link href="/settings" className="hidden xl:inline-block px-2.5 py-2 text-sm font-medium text-text-secondary hover:text-primary whitespace-nowrap">
                 {t("nav.settings")}
               </Link>
             </>
           )}
         </nav>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2 shrink-0">
           <ThemeToggle />
           <LanguageSelector />
           {isSignedIn ? (
