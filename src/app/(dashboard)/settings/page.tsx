@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useAppStore } from "@/store";
 import { Input } from "@/components/ui/Input";
@@ -72,7 +71,6 @@ export default function SettingsPage() {
   const tr = (key: string, fallback: string) => t(`settings.${key}`, undefined, fallback);
 
   const [tab, setTab] = useState<Tab>("profile");
-  const [ready, setReady] = useState(false);
 
   // Profile fields
   const [name, setName] = useState("");
@@ -108,41 +106,23 @@ export default function SettingsPage() {
 
   const [saving, setSaving] = useState(false);
 
-  // When user isn't in the Zustand store, check Supabase directly and self-heal.
-  // Hard cap at 3 seconds — if Supabase doesn't respond, we proceed anyway with
-  // a minimal user (constructed from auth metadata) so the UI never hangs.
-  // The middleware already verified the user is signed in to reach this page,
-  // so we can trust that and render the form.
+  // Self-heal: if user isn't in the store, fetch from Supabase and populate.
+  // Render proceeds with empty fields in the meantime so the page never hangs.
   useEffect(() => {
-    if (user) {
-      setReady(true);
-      return;
-    }
+    if (user) return;
     let cancelled = false;
     const supabase = createClient();
-
-    // Failsafe: never let this page hang. After 3s, proceed regardless.
-    const failsafe = setTimeout(() => {
-      if (!cancelled) setReady(true);
-    }, 3000);
-
     (async () => {
       try {
         const { data: { user: authUser } } = await supabase.auth.getUser();
-        if (cancelled) return;
-        if (!authUser) {
-          clearTimeout(failsafe);
-          setReady(true);
-          return;
-        }
+        if (cancelled || !authUser) return;
+
         const fallbackName =
           (authUser.user_metadata?.full_name as string)?.trim() ||
           (authUser.user_metadata?.name as string)?.trim() ||
           authUser.email?.split("@")[0] ||
           "Member";
 
-        // Set a minimal user immediately so the form renders even if the
-        // profile query is slow.
         setUser({
           id: authUser.id,
           full_name: fallbackName,
@@ -162,27 +142,19 @@ export default function SettingsPage() {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         } as any);
-        clearTimeout(failsafe);
-        setReady(true);
 
-        // Then fetch the real profile in the background.
         const { data: profile } = await supabase
           .from("profiles")
           .select("*")
           .eq("id", authUser.id)
           .maybeSingle();
-        if (cancelled) return;
-        if (profile) {
-          setUser(profile);
-        }
+        if (!cancelled && profile) setUser(profile);
       } catch {
-        clearTimeout(failsafe);
-        if (!cancelled) setReady(true);
+        // Render still proceeds — fields just stay empty.
       }
     })();
     return () => {
       cancelled = true;
-      clearTimeout(failsafe);
     };
   }, [user, setUser]);
 
@@ -331,27 +303,9 @@ export default function SettingsPage() {
     }
   };
 
-  if (!ready && !user) {
-    return (
-      <div className="max-w-3xl mx-auto p-8 text-center text-text-muted">
-        <Loader2 className="h-6 w-6 animate-spin mx-auto" />
-      </div>
-    );
-  }
-
-  // If we still don't have a user after ready, just keep showing the loader.
-  // We won't reach this normally — the middleware blocks unsigned users from
-  // /settings, and the effect above populates a minimal user. But keep it as
-  // a safety net so we never flash a "Sign in" prompt at an actually-signed-in
-  // user.
-  if (!user) {
-    return (
-      <div className="max-w-3xl mx-auto p-8 text-center text-text-muted">
-        <Loader2 className="h-6 w-6 animate-spin mx-auto" />
-      </div>
-    );
-  }
-
+  // Always render the form — never block on user data loading. Fields show
+  // empty defaults until user data populates. Avoids any chance of an infinite
+  // loading spinner when Supabase is slow or blocked by the browser.
   return (
     <div className="max-w-3xl mx-auto p-5 md:p-8 space-y-6">
       <h1 className="text-3xl font-semibold">{t("settings.title")}</h1>
@@ -376,11 +330,11 @@ export default function SettingsPage() {
           <section className="bg-white rounded-card border border-border p-6 space-y-4">
             <div className="flex items-center gap-4">
               <div className="h-16 w-16 rounded-full bg-primary-light text-primary-dark grid place-items-center font-semibold text-xl overflow-hidden">
-                {user.avatar_url ? (
+                {user?.avatar_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={user.avatar_url} alt="" className="h-full w-full object-cover" />
                 ) : (
-                  (preferredName || user.full_name || "U")[0]?.toUpperCase()
+                  (preferredName || user?.full_name || "U")[0]?.toUpperCase()
                 )}
               </div>
               <label className="text-sm font-medium text-primary cursor-pointer hover:underline">
@@ -402,7 +356,7 @@ export default function SettingsPage() {
               value={preferredName}
               onChange={(e) => setPreferredName(e.target.value)}
             />
-            <Input label={t("auth.email")} value={user.email || ""} disabled />
+            <Input label={t("auth.email")} value={user?.email || ""} disabled />
             <Input
               label={tr("phone", "Phone number")}
               hint={tr("phoneHint", "Used only for resource updates you opt into.")}
@@ -755,8 +709,9 @@ export default function SettingsPage() {
             <Button
               variant="outline"
               onClick={async () => {
+                if (!user?.email) return;
                 const supabase = createClient();
-                await supabase.auth.resetPasswordForEmail(user.email!);
+                await supabase.auth.resetPasswordForEmail(user.email);
                 showToast("success", t("settings.resetLinkSent"));
               }}
             >
