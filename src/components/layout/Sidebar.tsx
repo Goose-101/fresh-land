@@ -1,4 +1,5 @@
 "use client";
+import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Logo } from "./Logo";
@@ -15,6 +16,49 @@ export function Sidebar() {
   const { user, setUser } = useAppStore();
   const { t } = useT();
   const pathwayReminderCount = usePathwayReminderCount();
+
+  // Self-heal: if user isn't in the store, fetch from Supabase so the greeting
+  // block always shows. The dashboard SSR has the user — but the sidebar is
+  // client-side and only learns about the user through Zustand.
+  useEffect(() => {
+    if (user) return;
+    let cancelled = false;
+    const supabase = createClient();
+    (async () => {
+      try {
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        if (cancelled || !authUser) return;
+
+        const fallbackName =
+          (authUser.user_metadata?.full_name as string)?.trim() ||
+          (authUser.user_metadata?.name as string)?.trim() ||
+          authUser.email?.split("@")[0] ||
+          "Member";
+
+        setUser({
+          id: authUser.id,
+          full_name: fallbackName,
+          email: authUser.email || "",
+          avatar_url: null,
+          preferred_language: "en",
+          city: "Atlanta",
+          state: "GA",
+        } as any);
+
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", authUser.id)
+          .maybeSingle();
+        if (!cancelled && profile) setUser(profile);
+      } catch {
+        // Render still proceeds — greeting block just stays hidden.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, setUser]);
 
   const nav = [
     { href: "/dashboard", label: t("nav.dashboard"), icon: Home },
@@ -86,28 +130,24 @@ export function Sidebar() {
           <ThemeToggle />
         </div>
         {user && (() => {
-          const displayName =
-            user.preferred_name?.trim() ||
+          const fullName =
             user.full_name?.trim() ||
+            user.preferred_name?.trim() ||
             user.email?.split("@")[0] ||
-            "there";
-          const firstName = displayName.split(" ")[0];
-          const hour = new Date().getHours();
-          const greeting =
-            hour < 12 ? "Good morning" :
-            hour < 17 ? "Good afternoon" :
-            hour < 21 ? "Good evening" :
-            "Hello";
+            "Member";
           return (
             <div className="flex items-center gap-3 px-2 py-2">
-              <div className="h-9 w-9 rounded-full bg-primary-light text-primary-dark grid place-items-center font-semibold text-sm shrink-0">
-                {displayName[0]?.toUpperCase()}
+              <div className="h-9 w-9 rounded-full bg-primary-light text-primary-dark grid place-items-center font-semibold text-sm shrink-0 overflow-hidden">
+                {user.avatar_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={user.avatar_url} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  fullName[0]?.toUpperCase()
+                )}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">
-                  {greeting}, {firstName}
-                </p>
-                <p className="text-xs text-text-muted truncate">{user.city || "Atlanta"}, {user.state || "GA"}</p>
+                <p className="text-sm font-medium truncate">{fullName}</p>
+                <p className="text-xs text-text-muted truncate">{user.email || `${user.city || "Atlanta"}, ${user.state || "GA"}`}</p>
               </div>
             </div>
           );
