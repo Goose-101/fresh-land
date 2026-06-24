@@ -57,6 +57,12 @@ export function SignupForm() {
       router.refresh();
       return;
     }
+    // Record when this OTP went out so the verify-email page can show an
+    // accurate 60-second cooldown on its Resend button (matches Supabase's
+    // server-side rate limit).
+    try {
+      localStorage.setItem(`fl:otp:lastSent:${email}`, String(Date.now()));
+    } catch {}
     router.push(`/verify-email?email=${encodeURIComponent(email)}`);
   };
 

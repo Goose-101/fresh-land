@@ -19,12 +19,39 @@ function VerifyEmailContent() {
   const [digits, setDigits] = useState<string[]>(Array(CODE_LEN).fill(""));
   const [verifying, setVerifying] = useState(false);
   const [resending, setResending] = useState(false);
+  // Supabase enforces a 60-second cooldown server-side between OTP sends to
+  // the same email. We mirror that on the client so users can't click "Resend"
+  // too early and silently hit that limit.
   const [cooldown, setCooldown] = useState(0);
   const inputs = useRef<(HTMLInputElement | null)[]>([]);
 
+  const cooldownKey = `fl:otp:lastSent:${email}`;
+
+  // Set a cooldown based on how long ago we know the LAST OTP was sent for
+  // this email. Stored as an epoch ms in localStorage. If signup just happened
+  // we expect signup/page.tsx to have written this; if not we still seed it
+  // so the resend button is properly gated.
   useEffect(() => {
+    if (!email) return;
     inputs.current[0]?.focus();
-  }, []);
+    try {
+      const lastSentRaw = localStorage.getItem(cooldownKey);
+      const lastSent = lastSentRaw ? parseInt(lastSentRaw, 10) : 0;
+      if (!lastSent) {
+        // Page reached without a known last-sent timestamp. Assume an OTP just
+        // went out (this is what the signup flow does) and start the cooldown.
+        const now = Date.now();
+        localStorage.setItem(cooldownKey, String(now));
+        setCooldown(60);
+        return;
+      }
+      const elapsedSec = Math.floor((Date.now() - lastSent) / 1000);
+      const remaining = 60 - elapsedSec;
+      if (remaining > 0) setCooldown(remaining);
+    } catch {
+      setCooldown(60);
+    }
+  }, [email, cooldownKey]);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -99,11 +126,29 @@ function VerifyEmailContent() {
         options: { emailRedirectTo: `${location.origin}/api/auth/callback` },
       });
       if (error) {
-        showToast("error", error.message);
+        // Detect Supabase's rate-limit error and surface a clearer message +
+        // arm the cooldown so the user can't keep banging on the button.
+        const msg = (error.message || "").toLowerCase();
+        if (msg.includes("security") || msg.includes("rate") || msg.includes("seconds")) {
+          setCooldown(60);
+          showToast(
+            "error",
+            t(
+              "auth.resendRateLimited",
+              undefined,
+              "Please wait 60 seconds before requesting another code."
+            )
+          );
+        } else {
+          showToast("error", error.message);
+        }
         return;
       }
       showToast("success", t("auth.codeResent", undefined, "New code sent. Check your inbox."));
-      setCooldown(45);
+      try {
+        localStorage.setItem(cooldownKey, String(Date.now()));
+      } catch {}
+      setCooldown(60);
     } finally {
       setResending(false);
     }
