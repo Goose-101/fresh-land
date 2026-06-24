@@ -13,6 +13,11 @@ export default async function CommunityPage() {
   const { messages } = await getServerMessages();
   const t = (key: string) => resolveKey(messages, key);
 
+  // The middleware already gates /community on auth, so authUser should be
+  // present here. Pass it to the client so posting never depends on the
+  // Zustand store being hydrated.
+  const { data: { user: authUser } } = await supabase.auth.getUser();
+
   const [{ data: posts }, { data: categories }, { data: resources }, { data: replies }] = await Promise.all([
     supabase
       .from("community_posts")
@@ -53,6 +58,7 @@ export default async function CommunityPage() {
         initialPosts={postsWithReplies}
         categories={categories || []}
         resources={resources || []}
+        currentUserId={authUser?.id || null}
       />
     </div>
   );

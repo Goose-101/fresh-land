@@ -51,7 +51,11 @@ type Props = {
   initialPosts: Post[];
   categories: { id: string; name: string; slug: string }[];
   resources: Resource[];
+  // Resolved server-side from cookies. Use this as the source of truth for
+  // "who is the signed-in user" — never depend on the Zustand store for posting.
+  currentUserId: string | null;
 };
+
 
 const REPORT_REASONS = ["spam", "harassment", "misinformation", "offtopic", "other"] as const;
 type ReportReason = (typeof REPORT_REASONS)[number];
@@ -60,12 +64,17 @@ function displayName(author: { full_name?: string | null } | null | undefined, f
   return author?.full_name?.trim() || fallback;
 }
 
-export function CommunityClient({ initialPosts, categories, resources }: Props) {
+export function CommunityClient({ initialPosts, categories, resources, currentUserId }: Props) {
   const { user, showToast, currentLanguage } = useAppStore();
   const { t } = useT();
   const [posts, setPosts] = useState<Post[]>(initialPosts);
   const [composerOpen, setComposerOpen] = useState(false);
   const [reportFor, setReportFor] = useState<{ postId: string } | null>(null);
+
+  // Source of truth for "the signed-in user." Prefer the server-resolved ID
+  // (always trustworthy because middleware already validated it); fall back to
+  // the Zustand store if the prop is somehow missing.
+  const effectiveUserId = currentUserId || user?.id || null;
 
   return (
     <>
@@ -90,7 +99,7 @@ export function CommunityClient({ initialPosts, categories, resources }: Props) 
             <PostCard
               key={post.id}
               post={post}
-              currentUserId={user?.id || null}
+              currentUserId={effectiveUserId}
               currentLanguage={currentLanguage}
               onReport={() => setReportFor({ postId: post.id })}
               onDelete={async () => {
@@ -127,7 +136,7 @@ export function CommunityClient({ initialPosts, categories, resources }: Props) 
         onClose={() => setComposerOpen(false)}
         categories={categories}
         resources={resources}
-        userId={user?.id || null}
+        userId={effectiveUserId}
         currentLanguage={currentLanguage}
         onCreated={(post) => setPosts((prev) => [post, ...prev])}
         onError={(msg) => showToast("error", msg)}
@@ -169,7 +178,7 @@ export function CommunityClient({ initialPosts, categories, resources }: Props) 
         open={!!reportFor}
         onClose={() => setReportFor(null)}
         postId={reportFor?.postId || null}
-        userId={user?.id || null}
+        userId={effectiveUserId}
         onReported={() => showToast("success", t("community.reportThanks", undefined, "Thanks — we'll review this post."))}
         onError={(msg) => showToast("error", msg)}
       />
@@ -252,14 +261,25 @@ function PostCard({
   };
 
   const sendReply = async () => {
-    if (!currentUserId || !replyText.trim()) return;
+    if (!replyText.trim()) return;
     setSending(true);
     const supabase = createClient();
+    // Re-resolve user from auth if the prop is missing so a transient empty
+    // Zustand store doesn't block legitimate replies.
+    let userId = currentUserId;
+    if (!userId) {
+      const { data: auth } = await supabase.auth.getUser();
+      userId = auth?.user?.id || null;
+    }
+    if (!userId) {
+      setSending(false);
+      return;
+    }
     const { data, error } = await supabase
       .from("community_replies")
       .insert({
         post_id: post.id,
-        user_id: currentUserId,
+        user_id: userId,
         content: replyText.trim(),
         language: currentLanguage,
       })
@@ -911,12 +931,22 @@ function ReportModal({
   };
 
   const submit = async () => {
-    if (!postId || !userId) return;
+    if (!postId) return;
     setSending(true);
     const supabase = createClient();
+    let reporterId = userId;
+    if (!reporterId) {
+      const { data: auth } = await supabase.auth.getUser();
+      reporterId = auth?.user?.id || null;
+    }
+    if (!reporterId) {
+      setSending(false);
+      onError(t("community.signInToReport", undefined, "Please sign in to report this post."));
+      return;
+    }
     const { error } = await supabase.from("community_reports").insert({
       post_id: postId,
-      reporter_id: userId,
+      reporter_id: reporterId,
       reason,
       note: note.trim() || null,
     });
