@@ -147,7 +147,6 @@ export function Sidebar() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{fullName}</p>
-                <p className="text-xs text-text-muted truncate">{user.email || `${user.city || "Atlanta"}, ${user.state || "GA"}`}</p>
               </div>
             </div>
           );
