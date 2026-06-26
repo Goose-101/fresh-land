@@ -565,11 +565,12 @@ function Composer({
     setPreview(null);
   };
 
-  // Compress an image client-side before upload. iPhone photos can be 5-10MB
-  // raw — uploading those on slow connections is the #1 cause of "stuck on
-  // uploading photo" hangs. Resizing to 1600px max + 0.82 JPEG quality
-  // typically takes a 10MB photo down to 400-600KB, which uploads in 1-3
-  // seconds on a 3G connection.
+  // Compress an image client-side before upload, keeping the highest quality
+  // we can while staying under 5MB. Strategy: start at high quality + a
+  // large max dimension, then step down quality (and dimension if needed)
+  // until the output fits the 5MB budget. This preserves clarity for photos
+  // that compress well and only sacrifices it when truly necessary.
+  const TARGET_BYTES = 5 * 1024 * 1024; // 5MB
   const compressImage = (f: File): Promise<File> =>
     new Promise((resolve) => {
       const img = new window.Image();
@@ -577,38 +578,63 @@ function Composer({
       reader.onload = (e) => {
         img.src = e.target?.result as string;
       };
-      reader.onerror = () => resolve(f); // fall back to original on error
+      reader.onerror = () => resolve(f);
       img.onload = () => {
-        const MAX_DIM = 1600;
-        let { width, height } = img;
-        if (width > MAX_DIM || height > MAX_DIM) {
-          if (width > height) {
-            height = Math.round((height * MAX_DIM) / width);
-            width = MAX_DIM;
-          } else {
-            width = Math.round((width * MAX_DIM) / height);
-            height = MAX_DIM;
+        // Try progressively tighter compression until we're under 5MB.
+        const attempts = [
+          { dim: 2800, q: 0.95 },
+          { dim: 2400, q: 0.92 },
+          { dim: 2000, q: 0.88 },
+          { dim: 1800, q: 0.85 },
+          { dim: 1600, q: 0.82 },
+          { dim: 1400, q: 0.78 },
+        ];
+
+        const tryAttempt = (i: number) => {
+          if (i >= attempts.length) {
+            // Couldn't get under 5MB even at the lowest setting — accept
+            // whatever the smallest attempt produced.
+            return resolve(f);
           }
-        }
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return resolve(f);
-        ctx.drawImage(img, 0, 0, width, height);
-        canvas.toBlob(
-          (blob) => {
-            if (!blob) return resolve(f);
-            // If the compressed version is somehow LARGER than the original,
-            // just keep the original.
-            if (blob.size >= f.size) return resolve(f);
-            resolve(new File([blob], f.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" }));
-          },
-          "image/jpeg",
-          0.82
-        );
+          const { dim, q } = attempts[i];
+          let { width, height } = img;
+          if (width > dim || height > dim) {
+            if (width > height) {
+              height = Math.round((height * dim) / width);
+              width = dim;
+            } else {
+              width = Math.round((width * dim) / height);
+              height = dim;
+            }
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return resolve(f);
+          ctx.drawImage(img, 0, 0, width, height);
+          canvas.toBlob(
+            (blob) => {
+              if (!blob) return resolve(f);
+              if (blob.size <= TARGET_BYTES) {
+                // If compression made it bigger than the original, prefer
+                // the original.
+                if (blob.size >= f.size) return resolve(f);
+                return resolve(
+                  new File([blob], f.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" })
+                );
+              }
+              // Still too big — try the next, tighter setting.
+              tryAttempt(i + 1);
+            },
+            "image/jpeg",
+            q
+          );
+        };
+
+        tryAttempt(0);
       };
-      img.onerror = () => resolve(f); // fall back to original on error
+      img.onerror = () => resolve(f);
       reader.readAsDataURL(f);
     });
 
@@ -723,7 +749,7 @@ function Composer({
         setStageBoth("compressing photo…");
         let toUpload: File;
         try {
-          toUpload = await withSoftTimeout(compressImage(file), 15000, "compress");
+          toUpload = await withSoftTimeout(compressImage(file), 30000, "compress");
         } catch {
           // Compression failed — try uploading the original.
           toUpload = file;
@@ -736,7 +762,7 @@ function Composer({
             supabase.storage
               .from("community-photos")
               .upload(path, toUpload, { cacheControl: "3600", upsert: false }),
-            45000,
+            90000,
             "photo upload"
           );
           if (uploadErr) {
