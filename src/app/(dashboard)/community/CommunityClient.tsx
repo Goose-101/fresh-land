@@ -800,22 +800,37 @@ function Composer({
       setStageBoth("saving post");
       let inserted: any = null;
       let insertError: any = null;
-      try {
-        const result = await withSoftTimeout(
+      // Try the insert up to twice with a tight 15s budget each. A DB insert
+      // should land in well under 2 seconds — if it's hung at 15s, it's
+      // genuinely stuck and a retry is more useful than waiting longer.
+      const doInsert = () =>
+        withSoftTimeout(
           supabase
             .from("community_posts")
             .insert(insertPayload)
             .select("*")
             .single(),
-          30000,
+          15000,
           "post save"
         );
+      try {
+        const result = await doInsert();
         inserted = result.data;
         insertError = result.error;
-      } catch (insertEx: any) {
-        return fail(
-          `Save took too long. Your post may still go through — refresh the page in a few seconds.`
-        );
+      } catch {
+        try {
+          setStageBoth("retrying save");
+          const result = await doInsert();
+          inserted = result.data;
+          insertError = result.error;
+        } catch {
+          // Both attempts hung. The post may or may not have saved — refetch
+          // so the user sees it if it did, then close the modal cleanly.
+          onRefetch?.();
+          return fail(
+            "Save took too long. Refreshing — if your post saved, you'll see it now."
+          );
+        }
       }
 
       if (insertError || !inserted) {
