@@ -614,21 +614,58 @@ function Composer({
     setStageBoth("starting…");
     const supabase = createClient();
 
-    // No timeouts — let the upload + insert take however long the network
-    // needs. Slow connections shouldn't get bounced just because publish
-    // took a while. If something genuinely fails, the awaited call returns
-    // an error and we surface it.
-    const fail = (msg: string) => {
+    // Hard safety net: no matter what happens (network drops, browser bug,
+    // unhandled promise rejection), the publish button can NEVER stay in a
+    // loading state for more than 3 minutes. After that we refetch in case
+    // the post actually saved, then reset the UI so the user can retry.
+    const safetyTimer = setTimeout(() => {
       setSaving(false);
+      setStageBoth("");
+      setDebugError(
+        "Still working — your post may have saved. Refreshing to check…"
+      );
+      onRefetch?.();
+      reset();
+      onClose();
+    }, 180000);
+
+    // Always-reachable cleanup: runs on success, error, or unexpected failure.
+    const finish = () => {
+      clearTimeout(safetyTimer);
+      setSaving(false);
+      setStageBoth("");
+    };
+
+    const fail = (msg: string) => {
+      finish();
       setDebugError(msg);
     };
+
+    // Wrap any awaited call in a soft timeout so an indefinitely-hanging
+    // promise can't keep the button stuck. 90 seconds is generous for almost
+    // any operation — uploads, inserts, profile fetches.
+    const withSoftTimeout = <T,>(p: PromiseLike<T>, ms: number, label: string): Promise<T> =>
+      Promise.race<T>([
+        Promise.resolve(p),
+        new Promise<T>((_, rej) =>
+          setTimeout(() => rej(new Error(`${label} timed out`)), ms)
+        ),
+      ]);
 
     try {
       setStageBoth("checking sign-in");
       let resolvedUserId = userId;
       if (!resolvedUserId) {
-        const { data: auth } = await supabase.auth.getUser();
-        resolvedUserId = auth?.user?.id || null;
+        try {
+          const { data: auth } = await withSoftTimeout(
+            supabase.auth.getUser(),
+            15000,
+            "auth check"
+          );
+          resolvedUserId = auth?.user?.id || null;
+        } catch {
+          return fail("Couldn't verify your sign-in. Please refresh and try again.");
+        }
       }
       if (!resolvedUserId) {
         return fail("Not signed in. Please log in and try again.");
@@ -640,13 +677,24 @@ function Composer({
         setStageBoth(`uploading photo (${sizeKB}KB)`);
         const ext = file.name.split(".").pop() || "jpg";
         const path = `${resolvedUserId}/${Date.now()}.${ext}`;
-        const { error: uploadErr } = await supabase.storage
-          .from("community-photos")
-          .upload(path, file, { cacheControl: "3600", upsert: false });
-        if (uploadErr) {
-          console.warn("[community-publish] upload error", uploadErr.message);
+        try {
+          const { error: uploadErr } = await withSoftTimeout(
+            supabase.storage
+              .from("community-photos")
+              .upload(path, file, { cacheControl: "3600", upsert: false }),
+            150000,
+            "photo upload"
+          );
+          if (uploadErr) {
+            console.warn("[community-publish] upload error", uploadErr.message);
+            return fail(
+              `Photo upload failed (${uploadErr.message}). Try again, or remove the photo to post just the text.`
+            );
+          }
+        } catch (uploadEx: any) {
+          console.warn("[community-publish] upload exception", uploadEx?.message);
           return fail(
-            `Photo upload failed (${uploadErr.message}). Try again, or remove the photo to post just the text.`
+            `Photo upload timed out. Your internet may be slow — try again, or remove the photo to post just the text.`
           );
         }
         const { data: pub } = supabase.storage.from("community-photos").getPublicUrl(path);
@@ -664,36 +712,64 @@ function Composer({
       if (image_url) insertPayload.image_url = image_url;
 
       setStageBoth("saving post");
-      const { data, error } = await supabase
-        .from("community_posts")
-        .insert(insertPayload)
-        .select("*")
-        .single();
-
-      if (error || !data) {
-        return fail(`Save failed: ${error?.message || "unknown error"}`);
+      let inserted: any = null;
+      let insertError: any = null;
+      try {
+        const result = await withSoftTimeout(
+          supabase
+            .from("community_posts")
+            .insert(insertPayload)
+            .select("*")
+            .single(),
+          30000,
+          "post save"
+        );
+        inserted = result.data;
+        insertError = result.error;
+      } catch (insertEx: any) {
+        return fail(
+          `Save took too long. Your post may still go through — refresh the page in a few seconds.`
+        );
       }
 
-      setSaving(false);
-      setStageBoth("");
+      if (insertError || !inserted) {
+        return fail(`Save failed: ${insertError?.message || "unknown error"}`);
+      }
 
-      // Fetch this user's profile so the new post shows the real name (not "Anonymous").
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("id, full_name, avatar_url")
-        .eq("id", resolvedUserId)
-        .single();
+      // CRITICAL: reset the UI immediately on successful save. Don't let
+      // anything that runs AFTER this (profile fetch, etc.) keep the button
+      // stuck if it fails. The post is already saved at this point.
+      finish();
+      reset();
+      onClose();
+
+      // Background hydration — best effort, can fail silently. If it does,
+      // the post will show "Anonymous" until the user refreshes, but it's
+      // already saved in the database.
+      let profile: any = null;
+      try {
+        const profileResult = await withSoftTimeout(
+          supabase
+            .from("profiles")
+            .select("id, full_name, avatar_url")
+            .eq("id", resolvedUserId)
+            .single(),
+          5000,
+          "profile fetch"
+        );
+        profile = profileResult.data;
+      } catch {
+        // Profile fetch hung or failed — show as anonymous, no big deal.
+      }
 
       const hydrated = {
-        ...data,
+        ...inserted,
         author: profile || { id: resolvedUserId, full_name: null, avatar_url: null },
         category: categories.find((c) => c.id === catId) || null,
         resource: resources.find((r) => r.id === resourceId) || null,
         replies: [],
       } as Post;
 
-      reset();
-      onClose();
       setTimeout(() => {
         onCreated(hydrated);
         onSuccess(t("community.postPublished", undefined, "Post published."));
