@@ -565,19 +565,66 @@ function Composer({
     setPreview(null);
   };
 
+  // Compress an image client-side before upload. iPhone photos can be 5-10MB
+  // raw — uploading those on slow connections is the #1 cause of "stuck on
+  // uploading photo" hangs. Resizing to 1600px max + 0.82 JPEG quality
+  // typically takes a 10MB photo down to 400-600KB, which uploads in 1-3
+  // seconds on a 3G connection.
+  const compressImage = (f: File): Promise<File> =>
+    new Promise((resolve) => {
+      const img = new window.Image();
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = () => resolve(f); // fall back to original on error
+      img.onload = () => {
+        const MAX_DIM = 1600;
+        let { width, height } = img;
+        if (width > MAX_DIM || height > MAX_DIM) {
+          if (width > height) {
+            height = Math.round((height * MAX_DIM) / width);
+            width = MAX_DIM;
+          } else {
+            width = Math.round((width * MAX_DIM) / height);
+            height = MAX_DIM;
+          }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return resolve(f);
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) return resolve(f);
+            // If the compressed version is somehow LARGER than the original,
+            // just keep the original.
+            if (blob.size >= f.size) return resolve(f);
+            resolve(new File([blob], f.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" }));
+          },
+          "image/jpeg",
+          0.82
+        );
+      };
+      img.onerror = () => resolve(f); // fall back to original on error
+      reader.readAsDataURL(f);
+    });
+
   const handleFile = (f: File | null) => {
     if (!f) {
       setFile(null);
       setPreview(null);
       return;
     }
-    const MAX_BYTES = 10 * 1024 * 1024;
+    const MAX_BYTES = 15 * 1024 * 1024; // accept up to 15MB — we compress before upload
     if (f.size > MAX_BYTES) {
       onError(
         t(
           "community.photoTooLarge",
           { size: (f.size / 1024 / 1024).toFixed(1) },
-          `Photo is ${(f.size / 1024 / 1024).toFixed(1)} MB. Maximum is 10 MB.`
+          `Photo is ${(f.size / 1024 / 1024).toFixed(1)} MB. Maximum is 15 MB.`
         )
       );
       setFile(null);
@@ -673,32 +720,45 @@ function Composer({
 
       let image_url: string | null = null;
       if (file) {
-        const sizeKB = Math.round(file.size / 1024);
+        setStageBoth("compressing photo…");
+        let toUpload: File;
+        try {
+          toUpload = await withSoftTimeout(compressImage(file), 15000, "compress");
+        } catch {
+          // Compression failed — try uploading the original.
+          toUpload = file;
+        }
+        const sizeKB = Math.round(toUpload.size / 1024);
         setStageBoth(`uploading photo (${sizeKB}KB)`);
-        const ext = file.name.split(".").pop() || "jpg";
-        const path = `${resolvedUserId}/${Date.now()}.${ext}`;
+        const path = `${resolvedUserId}/${Date.now()}.jpg`;
         try {
           const { error: uploadErr } = await withSoftTimeout(
             supabase.storage
               .from("community-photos")
-              .upload(path, file, { cacheControl: "3600", upsert: false }),
-            150000,
+              .upload(path, toUpload, { cacheControl: "3600", upsert: false }),
+            45000,
             "photo upload"
           );
           if (uploadErr) {
             console.warn("[community-publish] upload error", uploadErr.message);
-            return fail(
-              `Photo upload failed (${uploadErr.message}). Try again, or remove the photo to post just the text.`
+            // Don't bail — publish without the photo so the user's text/title
+            // doesn't get lost. Show a soft warning afterwards.
+            onError(
+              "Photo couldn't be uploaded — your post was published without it. You can edit it to add a photo later."
             );
+            image_url = null;
+          } else {
+            const { data: pub } = supabase.storage.from("community-photos").getPublicUrl(path);
+            image_url = pub.publicUrl;
           }
         } catch (uploadEx: any) {
           console.warn("[community-publish] upload exception", uploadEx?.message);
-          return fail(
-            `Photo upload timed out. Your internet may be slow — try again, or remove the photo to post just the text.`
+          // Photo upload hung past 45s — same fallback: publish without it.
+          onError(
+            "Photo upload was too slow on your connection — your post was published without it."
           );
+          image_url = null;
         }
-        const { data: pub } = supabase.storage.from("community-photos").getPublicUrl(path);
-        image_url = pub.publicUrl;
       }
 
       const insertPayload: Record<string, any> = {
