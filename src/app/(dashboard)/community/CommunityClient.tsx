@@ -107,14 +107,31 @@ export function CommunityClient({ initialPosts, categories, resources, currentUs
                   t("community.deleteConfirm", undefined, "Delete this post? This cannot be undone.")
                 );
                 if (!ok) return;
-                const supabase = createClient();
-                const { error } = await supabase.from("community_posts").delete().eq("id", post.id);
-                if (error) {
-                  showToast("error", t("community.deleteFailed", undefined, "Could not delete post."));
-                  return;
+                // Route through our server endpoint instead of direct
+                // browser → Supabase, which is unreliable on this network.
+                try {
+                  const res = await fetch("/api/community/post", {
+                    method: "DELETE",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ id: post.id }),
+                  });
+                  const json = await res.json().catch(() => ({}));
+                  if (!res.ok) {
+                    showToast(
+                      "error",
+                      json.error ||
+                        t("community.deleteFailed", undefined, "Could not delete post.")
+                    );
+                    return;
+                  }
+                  setPosts((prev) => prev.filter((p) => p.id !== post.id));
+                  showToast("success", t("community.deleted", undefined, "Post deleted."));
+                } catch {
+                  showToast(
+                    "error",
+                    t("community.deleteFailed", undefined, "Could not delete post.")
+                  );
                 }
-                setPosts((prev) => prev.filter((p) => p.id !== post.id));
-                showToast("success", t("community.deleted", undefined, "Post deleted."));
               }}
               onReplyAdded={(reply) =>
                 setPosts((prev) =>
@@ -537,8 +554,6 @@ function Composer({
   const [preview, setPreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [stage, setStage] = useState<string>("");
-  const [skipPhotoFlag, setSkipPhotoFlag] = useState(false);
-  const skipPhotoRef = useRef(false);
   const stageRef = useRef<string>("");
   const setStageBoth = (s: string) => {
     stageRef.current = s;
@@ -572,7 +587,9 @@ function Composer({
   // large max dimension, then step down quality (and dimension if needed)
   // until the output fits the 5MB budget. This preserves clarity for photos
   // that compress well and only sacrifices it when truly necessary.
-  const TARGET_BYTES = 5 * 1024 * 1024; // 5MB
+  // 4MB target — keeps the multipart body under Vercel's 4.5MB function
+  // request payload limit on the Hobby tier.
+  const TARGET_BYTES = 4 * 1024 * 1024;
   const compressImage = (f: File): Promise<File> =>
     new Promise((resolve) => {
       const img = new window.Image();
@@ -687,8 +704,6 @@ function Composer({
     setSaving(true);
     setDebugError("");
     setStageBoth("starting…");
-    skipPhotoRef.current = false;
-    setSkipPhotoFlag(false);
     const supabase = createClient();
 
     // Hard safety net: no matter what happens (network drops, browser bug,
@@ -757,7 +772,7 @@ function Composer({
       }
 
       let image_url: string | null = null;
-      if (file && !skipPhotoRef.current) {
+      if (file) {
         setStageBoth("compressing photo…");
         let toUpload: File;
         try {
@@ -768,66 +783,37 @@ function Composer({
         const sizeKB = Math.round(toUpload.size / 1024);
         setStageBoth(`uploading photo (${sizeKB}KB)`);
 
-        // Route the upload through our own server endpoint instead of going
-        // direct browser → Supabase storage. The Vercel function has a
-        // reliable connection to Supabase that the browser apparently does
-        // not, on this network.
+        // Route the upload through our own server endpoint so the browser
+        // only has to reach freshland.cc (same origin, reliable). The
+        // server-to-Supabase leg is rock-solid.
         const formData = new FormData();
         formData.append("file", toUpload);
 
-        const uploadPromise = fetch("/api/community/upload-photo", {
-          method: "POST",
-          body: formData,
-        });
-
-        const skipWatcher = new Promise<{ skipped: true }>((resolve) => {
-          const id = setInterval(() => {
-            if (skipPhotoRef.current) {
-              clearInterval(id);
-              resolve({ skipped: true });
-            }
-          }, 200);
-        });
-
-        let raceResult: any;
         try {
-          raceResult = await Promise.race([
-            uploadPromise.then((r) => ({ ok: true, response: r })),
-            new Promise((_, rej) =>
-              setTimeout(() => rej(new Error("upload timed out")), 45000)
-            ),
-            skipWatcher,
-          ]);
+          const response = await withSoftTimeout(
+            fetch("/api/community/upload-photo", {
+              method: "POST",
+              body: formData,
+            }),
+            45000,
+            "photo upload"
+          );
+          const json = await response.json().catch(() => ({}));
+          if (!response.ok || !json.url) {
+            console.warn("[community-publish] upload error", json.error);
+            onError(
+              "Photo couldn't be uploaded — your post was published without it."
+            );
+            image_url = null;
+          } else {
+            image_url = json.url;
+          }
         } catch (uploadEx: any) {
           console.warn("[community-publish] upload exception", uploadEx?.message);
           onError(
-            "Photo upload was too slow on your connection — your post was published without it."
+            "Photo upload was too slow — your post was published without it."
           );
           image_url = null;
-        }
-
-        if (raceResult) {
-          if (raceResult.skipped) {
-            image_url = null;
-          } else if (raceResult.ok) {
-            try {
-              const json = await raceResult.response.json();
-              if (!raceResult.response.ok || !json.url) {
-                console.warn("[community-publish] upload error", json.error);
-                onError(
-                  "Photo couldn't be uploaded — your post was published without it. You can edit it to add a photo later."
-                );
-                image_url = null;
-              } else {
-                image_url = json.url;
-              }
-            } catch {
-              onError(
-                "Photo couldn't be uploaded — your post was published without it."
-              );
-              image_url = null;
-            }
-          }
         }
       }
 
@@ -1020,20 +1006,8 @@ function Composer({
         </div>
 
         {saving && stage && (
-          <div className="flex items-center gap-2 text-xs text-primary bg-primary-light/40 rounded-btn px-3 py-2">
-            <span className="flex-1">{stage}…</span>
-            {stage.startsWith("uploading photo") && !skipPhotoFlag && (
-              <button
-                type="button"
-                onClick={() => {
-                  skipPhotoRef.current = true;
-                  setSkipPhotoFlag(true);
-                }}
-                className="text-primary font-semibold underline underline-offset-2 hover:text-primary-dark"
-              >
-                {t("community.skipPhoto", undefined, "Skip photo & post")}
-              </button>
-            )}
+          <div className="text-xs text-primary bg-primary-light/40 rounded-btn px-3 py-2">
+            {stage}…
           </div>
         )}
         {debugError && (

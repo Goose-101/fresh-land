@@ -6,6 +6,43 @@ import { createClient } from "@/lib/supabase/server";
 // server endpoint means the heavy lifting (DB insert, FK checks, RLS) happens
 // inside the Vercel function via a direct server-to-Supabase connection,
 // which is far more reliable than the browser path.
+export async function DELETE(req: Request) {
+  try {
+    const { id }: { id?: string } = await req.json().catch(() => ({}));
+    if (!id) {
+      return NextResponse.json({ error: "missing post id" }, { status: 400 });
+    }
+
+    const supabase = await createClient();
+    const {
+      data: { user: authUser },
+    } = await supabase.auth.getUser();
+
+    if (!authUser) {
+      return NextResponse.json({ error: "not signed in" }, { status: 401 });
+    }
+
+    // RLS already restricts deletes to your own posts, but we also check
+    // here so we can return a clear error before hitting the DB.
+    const { error } = await supabase
+      .from("community_posts")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", authUser.id);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message || "server error" },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
