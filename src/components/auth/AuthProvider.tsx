@@ -3,8 +3,6 @@ import { ReactNode, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAppStore } from "@/store";
 
-const IDLE_TIMEOUT_MS = 12 * 60 * 60 * 1000;
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { user, setUser, setSavedIds, setNotifications, setCurrentLanguage } = useAppStore();
 
@@ -138,48 +136,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => sub.subscription.unsubscribe();
   }, [setUser, setSavedIds, setNotifications, setCurrentLanguage]);
-
-  useEffect(() => {
-    if (!user) return;
-
-    const supabase = createClient();
-    let idleTimer: ReturnType<typeof setTimeout> | undefined;
-
-    const resetIdle = () => {
-      if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => {
-        supabase.auth.signOut();
-      }, IDLE_TIMEOUT_MS);
-    };
-
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        supabase.auth.getSession();
-        resetIdle();
-      }
-    };
-
-    const events: (keyof WindowEventMap)[] = [
-      "mousemove",
-      "mousedown",
-      "keydown",
-      "scroll",
-      "touchstart",
-      "click",
-    ];
-    events.forEach((e) => window.addEventListener(e, resetIdle, { passive: true }));
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("focus", resetIdle);
-
-    resetIdle();
-
-    return () => {
-      if (idleTimer) clearTimeout(idleTimer);
-      events.forEach((e) => window.removeEventListener(e, resetIdle));
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("focus", resetIdle);
-    };
-  }, [user]);
 
   return <>{children}</>;
 }
