@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -75,6 +75,41 @@ export function CommunityClient({ initialPosts, categories, resources, currentUs
   // (always trustworthy because middleware already validated it); fall back to
   // the Zustand store if the prop is somehow missing.
   const effectiveUserId = currentUserId || user?.id || null;
+
+  // Live sync: subscribe to community_posts changes so when someone deletes
+  // (or creates / edits) a post, every other viewer's feed updates without
+  // them having to refresh. Requires community_posts to be in the
+  // supabase_realtime publication (Database → Replication → Source: postgres
+  // → toggle community_posts ON).
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel("community-posts-feed")
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "community_posts" },
+        (payload) => {
+          const deletedId = (payload.old as { id?: string })?.id;
+          if (!deletedId) return;
+          setPosts((prev) => prev.filter((p) => p.id !== deletedId));
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "community_posts" },
+        (payload) => {
+          const updated = payload.new as any;
+          if (!updated?.id) return;
+          setPosts((prev) =>
+            prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p))
+          );
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   return (
     <>
