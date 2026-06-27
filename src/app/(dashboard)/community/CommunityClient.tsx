@@ -832,78 +832,48 @@ function Composer({
       if (image_url) insertPayload.image_url = image_url;
 
       setStageBoth("saving post");
+      // Use a server-side API route instead of inserting directly from the
+      // browser. This bypasses browser-to-Supabase network issues that have
+      // been causing inserts to hang. The Vercel function has a direct,
+      // reliable connection to Supabase and a tight 10s budget.
       let inserted: any = null;
-      let insertError: any = null;
-      // Try the insert up to twice with a tight 15s budget each. A DB insert
-      // should land in well under 2 seconds — if it's hung at 15s, it's
-      // genuinely stuck and a retry is more useful than waiting longer.
-      const doInsert = () =>
-        withSoftTimeout(
-          supabase
-            .from("community_posts")
-            .insert(insertPayload)
-            .select("*")
-            .single(),
-          15000,
+      try {
+        const apiResponse = await withSoftTimeout(
+          fetch("/api/community/post", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              title: insertPayload.title,
+              content: insertPayload.content,
+              category_id: insertPayload.category_id,
+              resource_id: insertPayload.resource_id,
+              image_url: insertPayload.image_url,
+              language: insertPayload.language,
+            }),
+          }),
+          20000,
           "post save"
         );
-      try {
-        const result = await doInsert();
-        inserted = result.data;
-        insertError = result.error;
-      } catch {
-        try {
-          setStageBoth("retrying save");
-          const result = await doInsert();
-          inserted = result.data;
-          insertError = result.error;
-        } catch {
-          // Both attempts hung. The post may or may not have saved — refetch
-          // so the user sees it if it did, then close the modal cleanly.
-          onRefetch?.();
-          return fail(
-            "Save took too long. Refreshing — if your post saved, you'll see it now."
-          );
+        const json = await apiResponse.json().catch(() => ({}));
+        if (!apiResponse.ok || !json.post) {
+          return fail(`Save failed: ${json.error || "unknown error"}`);
         }
+        inserted = json.post;
+      } catch {
+        onRefetch?.();
+        return fail(
+          "Save took too long. Refreshing — if your post saved, you'll see it now."
+        );
       }
 
-      if (insertError || !inserted) {
-        return fail(`Save failed: ${insertError?.message || "unknown error"}`);
-      }
-
-      // CRITICAL: reset the UI immediately on successful save. Don't let
-      // anything that runs AFTER this (profile fetch, etc.) keep the button
-      // stuck if it fails. The post is already saved at this point.
+      // Reset UI immediately on save success. The server-side route already
+      // returned the post with author/category/resource embedded, so we don't
+      // need any follow-up fetches.
       finish();
       reset();
       onClose();
 
-      // Background hydration — best effort, can fail silently. If it does,
-      // the post will show "Anonymous" until the user refreshes, but it's
-      // already saved in the database.
-      let profile: any = null;
-      try {
-        const profileResult = await withSoftTimeout(
-          supabase
-            .from("profiles")
-            .select("id, full_name, avatar_url")
-            .eq("id", resolvedUserId)
-            .single(),
-          5000,
-          "profile fetch"
-        );
-        profile = profileResult.data;
-      } catch {
-        // Profile fetch hung or failed — show as anonymous, no big deal.
-      }
-
-      const hydrated = {
-        ...inserted,
-        author: profile || { id: resolvedUserId, full_name: null, avatar_url: null },
-        category: categories.find((c) => c.id === catId) || null,
-        resource: resources.find((r) => r.id === resourceId) || null,
-        replies: [],
-      } as Post;
+      const hydrated = { ...inserted, replies: [] } as Post;
 
       setTimeout(() => {
         onCreated(hydrated);
