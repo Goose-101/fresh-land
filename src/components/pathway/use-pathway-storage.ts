@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "@/store";
 import type {
   OnboardingState,
@@ -8,9 +8,15 @@ import type {
   TaskStatus,
 } from "@/lib/pathway-tasks";
 
-const ONBOARDING_KEY = "pathway:onboarding:v1";
-const TASKS_KEY = "pathway:tasks:v1";
-const REMINDERS_KEY = "pathway:reminders:v1";
+// Pathway data is per-user — keys are namespaced with the signed-in user's ID
+// so two people sharing a browser (or one user signing in/out as another)
+// never see each other's reminders, tasks, or onboarding state.
+const onboardingKey = (uid: string | null) =>
+  `pathway:onboarding:v1${uid ? ":" + uid : ""}`;
+const tasksKey = (uid: string | null) =>
+  `pathway:tasks:v1${uid ? ":" + uid : ""}`;
+const remindersKey = (uid: string | null) =>
+  `pathway:reminders:v1${uid ? ":" + uid : ""}`;
 
 // Mirror a reminder to the server via the /api/reminders endpoint so the cron
 // job can email at fire_at, even if the browser is closed. Visible toast on
@@ -72,87 +78,108 @@ function writeJson(key: string, value: unknown) {
 }
 
 export function useOnboarding() {
+  const userId = useAppStore((s) => s.user?.id || null);
+  const key = useMemo(() => onboardingKey(userId), [userId]);
   const [state, setState] = useState<OnboardingState>(EMPTY_ONBOARDING);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    setState(readJson<OnboardingState>(ONBOARDING_KEY, EMPTY_ONBOARDING));
+    setState(readJson<OnboardingState>(key, EMPTY_ONBOARDING));
     setHydrated(true);
-  }, []);
+  }, [key]);
 
-  const save = useCallback((next: OnboardingState) => {
-    setState(next);
-    writeJson(ONBOARDING_KEY, next);
-  }, []);
+  const save = useCallback(
+    (next: OnboardingState) => {
+      setState(next);
+      writeJson(key, next);
+    },
+    [key]
+  );
 
   const reset = useCallback(() => {
     setState(EMPTY_ONBOARDING);
-    writeJson(ONBOARDING_KEY, EMPTY_ONBOARDING);
-  }, []);
+    writeJson(key, EMPTY_ONBOARDING);
+  }, [key]);
 
   return { state, hydrated, save, reset };
 }
 
 export function useTasks() {
+  const userId = useAppStore((s) => s.user?.id || null);
+  const key = useMemo(() => tasksKey(userId), [userId]);
   const [state, setState] = useState<TaskState>({});
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    setState(readJson<TaskState>(TASKS_KEY, {}));
+    setState(readJson<TaskState>(key, {}));
     setHydrated(true);
-  }, []);
+  }, [key]);
 
-  const setStatus = useCallback((taskId: string, status: TaskStatus) => {
-    setState((prev) => {
-      const next = {
-        ...prev,
-        [taskId]: { status, updatedAt: new Date().toISOString() },
-      };
-      writeJson(TASKS_KEY, next);
-      return next;
-    });
-  }, []);
+  const setStatus = useCallback(
+    (taskId: string, status: TaskStatus) => {
+      setState((prev) => {
+        const next = {
+          ...prev,
+          [taskId]: { status, updatedAt: new Date().toISOString() },
+        };
+        writeJson(key, next);
+        return next;
+      });
+    },
+    [key]
+  );
 
-  const bulkAlready = useCallback((ids: string[]) => {
-    setState((prev) => {
-      const next = { ...prev };
-      const now = new Date().toISOString();
-      for (const id of ids) {
-        next[id] = { status: "already", updatedAt: now };
-      }
-      writeJson(TASKS_KEY, next);
-      return next;
-    });
-  }, []);
+  const bulkAlready = useCallback(
+    (ids: string[]) => {
+      setState((prev) => {
+        const next = { ...prev };
+        const now = new Date().toISOString();
+        for (const id of ids) {
+          next[id] = { status: "already", updatedAt: now };
+        }
+        writeJson(key, next);
+        return next;
+      });
+    },
+    [key]
+  );
 
-  const resetMany = useCallback((ids: string[]) => {
-    setState((prev) => {
-      const next = { ...prev };
-      for (const id of ids) delete next[id];
-      writeJson(TASKS_KEY, next);
-      return next;
-    });
-  }, []);
+  const resetMany = useCallback(
+    (ids: string[]) => {
+      setState((prev) => {
+        const next = { ...prev };
+        for (const id of ids) delete next[id];
+        writeJson(key, next);
+        return next;
+      });
+    },
+    [key]
+  );
 
   const reset = useCallback(() => {
     setState({});
-    writeJson(TASKS_KEY, {});
-  }, []);
+    writeJson(key, {});
+  }, [key]);
 
   return { state, hydrated, setStatus, bulkAlready, resetMany, reset };
 }
 
 export function useReminders(onFire?: (r: Reminder) => void) {
+  const userId = useAppStore((s) => s.user?.id || null);
+  const key = useMemo(() => remindersKey(userId), [userId]);
   const [list, setList] = useState<Reminder[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const onFireRef = useRef(onFire);
   onFireRef.current = onFire;
 
-  const persist = useCallback((next: Reminder[]) => {
-    setList(next);
-    writeJson(REMINDERS_KEY, next);
-  }, []);
+  const persist = useCallback(
+    (next: Reminder[]) => {
+      setList(next);
+      writeJson(key, next);
+    },
+    [key]
+  );
 
   const fire = useCallback(
     (id: string) => {
@@ -160,7 +187,7 @@ export function useReminders(onFire?: (r: Reminder) => void) {
         const target = prev.find((r) => r.id === id);
         if (!target || target.fired) return prev;
         const next = prev.map((r) => (r.id === id ? { ...r, fired: true } : r));
-        writeJson(REMINDERS_KEY, next);
+        writeJson(key, next);
         if (typeof window !== "undefined" && "Notification" in window) {
           if (Notification.permission === "granted") {
             try {
@@ -175,7 +202,7 @@ export function useReminders(onFire?: (r: Reminder) => void) {
         return next;
       });
     },
-    []
+    [key]
   );
 
   const schedule = useCallback(
@@ -193,7 +220,7 @@ export function useReminders(onFire?: (r: Reminder) => void) {
   );
 
   useEffect(() => {
-    const initial = readJson<Reminder[]>(REMINDERS_KEY, []);
+    const initial = readJson<Reminder[]>(key, []);
     setList(initial);
     setHydrated(true);
     for (const r of initial) {
@@ -204,7 +231,7 @@ export function useReminders(onFire?: (r: Reminder) => void) {
       for (const t of snapshot.values()) clearTimeout(t);
       snapshot.clear();
     };
-  }, [schedule]);
+  }, [key, schedule]);
 
   const add = useCallback(
     (r: Omit<Reminder, "id" | "fired">, taskTitle?: string) => {
@@ -219,47 +246,51 @@ export function useReminders(onFire?: (r: Reminder) => void) {
       };
       setList((prev) => {
         const next = [...prev, full];
-        writeJson(REMINDERS_KEY, next);
+        writeJson(key, next);
         return next;
       });
       schedule(full);
-      // Mirror to server so the cron job can email at fire_at, even if the
-      // user closes their browser. Best-effort, doesn't block the UI.
       syncReminderToServer(full, taskTitle || full.note || full.taskId);
       return full;
     },
-    [schedule]
+    [schedule, key]
   );
 
-  const remove = useCallback((id: string) => {
-    const t = timers.current.get(id);
-    if (t) {
-      clearTimeout(t);
-      timers.current.delete(id);
-    }
-    setList((prev) => {
-      const next = prev.filter((r) => r.id !== id);
-      writeJson(REMINDERS_KEY, next);
-      return next;
-    });
-    deleteReminderOnServer(id);
-  }, []);
+  const remove = useCallback(
+    (id: string) => {
+      const t = timers.current.get(id);
+      if (t) {
+        clearTimeout(t);
+        timers.current.delete(id);
+      }
+      setList((prev) => {
+        const next = prev.filter((r) => r.id !== id);
+        writeJson(key, next);
+        return next;
+      });
+      deleteReminderOnServer(id);
+    },
+    [key]
+  );
 
-  const markViewed = useCallback((id: string) => {
-    setList((prev) => {
-      const next = prev.map((r) => (r.id === id ? { ...r, viewed: true } : r));
-      writeJson(REMINDERS_KEY, next);
-      return next;
-    });
-  }, []);
+  const markViewed = useCallback(
+    (id: string) => {
+      setList((prev) => {
+        const next = prev.map((r) => (r.id === id ? { ...r, viewed: true } : r));
+        writeJson(key, next);
+        return next;
+      });
+    },
+    [key]
+  );
 
   const markAllViewed = useCallback(() => {
     setList((prev) => {
       const next = prev.map((r) => (r.fired ? { ...r, viewed: true } : r));
-      writeJson(REMINDERS_KEY, next);
+      writeJson(key, next);
       return next;
     });
-  }, []);
+  }, [key]);
 
   const requestPermission = useCallback(async () => {
     if (typeof window === "undefined" || !("Notification" in window)) return "unsupported" as const;

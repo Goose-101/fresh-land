@@ -1,10 +1,14 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Bell } from "lucide-react";
+import { useAppStore } from "@/store";
 import type { Reminder, TaskState } from "@/lib/pathway-tasks";
 
-const REMINDERS_KEY = "pathway:reminders:v1";
-const TASKS_KEY = "pathway:tasks:v1";
+// Match the user-scoped key scheme in use-pathway-storage.ts.
+const remindersKey = (uid: string | null) =>
+  `pathway:reminders:v1${uid ? ":" + uid : ""}`;
+const tasksKey = (uid: string | null) =>
+  `pathway:tasks:v1${uid ? ":" + uid : ""}`;
 
 function readJson<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -17,9 +21,10 @@ function readJson<T>(key: string, fallback: T): T {
   }
 }
 
-function compute(): number {
-  const reminders = readJson<Reminder[]>(REMINDERS_KEY, []);
-  const tasks = readJson<TaskState>(TASKS_KEY, {});
+function compute(uid: string | null): number {
+  if (!uid) return 0;
+  const reminders = readJson<Reminder[]>(remindersKey(uid), []);
+  const tasks = readJson<TaskState>(tasksKey(uid), {});
   return reminders.filter((r) => {
     if (!r.fired || r.viewed) return false;
     const status = tasks[r.taskId]?.status;
@@ -28,20 +33,23 @@ function compute(): number {
 }
 
 export function usePathwayReminderCount() {
+  const userId = useAppStore((s) => s.user?.id || null);
   const [count, setCount] = useState(0);
 
   useEffect(() => {
-    setCount(compute());
+    setCount(compute(userId));
+    const rKey = remindersKey(userId);
+    const tKey = tasksKey(userId);
     const onStorage = (e: StorageEvent) => {
-      if (e.key === REMINDERS_KEY || e.key === TASKS_KEY) setCount(compute());
+      if (e.key === rKey || e.key === tKey) setCount(compute(userId));
     };
-    const interval = setInterval(() => setCount(compute()), 5000);
+    const interval = setInterval(() => setCount(compute(userId)), 5000);
     window.addEventListener("storage", onStorage);
     return () => {
       window.removeEventListener("storage", onStorage);
       clearInterval(interval);
     };
-  }, []);
+  }, [userId]);
 
   return count;
 }
