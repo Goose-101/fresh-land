@@ -18,6 +18,28 @@ export default async function CommunityPage() {
   // Zustand store being hydrated.
   const { data: { user: authUser } } = await supabase.auth.getUser();
 
+  // Self-heal: ensure a profile row exists for this user. The on_auth_user_created
+  // trigger can silently fail (e.g., during a transient outage), and without a
+  // matching profiles row, the community_posts FK insert blows up. Doing an
+  // upsert here every page load makes posting bulletproof against trigger gaps.
+  if (authUser) {
+    await supabase
+      .from("profiles")
+      .upsert(
+        {
+          id: authUser.id,
+          email: authUser.email,
+          full_name:
+            (authUser.user_metadata?.full_name as string)?.trim() ||
+            (authUser.user_metadata?.name as string)?.trim() ||
+            authUser.email?.split("@")[0] ||
+            "Member",
+          avatar_url: (authUser.user_metadata?.avatar_url as string) || null,
+        },
+        { onConflict: "id", ignoreDuplicates: true }
+      );
+  }
+
   const [{ data: posts }, { data: categories }, { data: resources }, { data: replies }] = await Promise.all([
     supabase
       .from("community_posts")
