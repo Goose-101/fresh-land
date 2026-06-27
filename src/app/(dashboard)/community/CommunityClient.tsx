@@ -537,6 +537,8 @@ function Composer({
   const [preview, setPreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [stage, setStage] = useState<string>("");
+  const [skipPhotoFlag, setSkipPhotoFlag] = useState(false);
+  const skipPhotoRef = useRef(false);
   const stageRef = useRef<string>("");
   const setStageBoth = (s: string) => {
     stageRef.current = s;
@@ -685,6 +687,8 @@ function Composer({
     setSaving(true);
     setDebugError("");
     setStageBoth("starting…");
+    skipPhotoRef.current = false;
+    setSkipPhotoFlag(false);
     const supabase = createClient();
 
     // Hard safety net: no matter what happens (network drops, browser bug,
@@ -745,45 +749,67 @@ function Composer({
       }
 
       let image_url: string | null = null;
-      if (file) {
+      if (file && !skipPhotoRef.current) {
         setStageBoth("compressing photo…");
         let toUpload: File;
         try {
           toUpload = await withSoftTimeout(compressImage(file), 30000, "compress");
         } catch {
-          // Compression failed — try uploading the original.
           toUpload = file;
         }
         const sizeKB = Math.round(toUpload.size / 1024);
         setStageBoth(`uploading photo (${sizeKB}KB)`);
         const path = `${resolvedUserId}/${Date.now()}.jpg`;
+
+        // Race the upload against (a) a fail-fast 30s timeout and (b) the
+        // user-controlled "skip photo" flag — whichever fires first wins.
+        const uploadPromise = supabase.storage
+          .from("community-photos")
+          .upload(path, toUpload, { cacheControl: "3600", upsert: false });
+
+        const skipWatcher = new Promise<{ skipped: true }>((resolve) => {
+          const id = setInterval(() => {
+            if (skipPhotoRef.current) {
+              clearInterval(id);
+              resolve({ skipped: true });
+            }
+          }, 200);
+        });
+
+        let raceResult: any;
         try {
-          const { error: uploadErr } = await withSoftTimeout(
-            supabase.storage
-              .from("community-photos")
-              .upload(path, toUpload, { cacheControl: "3600", upsert: false }),
-            90000,
-            "photo upload"
-          );
-          if (uploadErr) {
-            console.warn("[community-publish] upload error", uploadErr.message);
-            // Don't bail — publish without the photo so the user's text/title
-            // doesn't get lost. Show a soft warning afterwards.
-            onError(
-              "Photo couldn't be uploaded — your post was published without it. You can edit it to add a photo later."
-            );
-            image_url = null;
-          } else {
-            const { data: pub } = supabase.storage.from("community-photos").getPublicUrl(path);
-            image_url = pub.publicUrl;
-          }
+          raceResult = await Promise.race([
+            uploadPromise.then((r) => ({ ok: true, result: r })),
+            new Promise((_, rej) =>
+              setTimeout(() => rej(new Error("upload timed out")), 30000)
+            ),
+            skipWatcher,
+          ]);
         } catch (uploadEx: any) {
           console.warn("[community-publish] upload exception", uploadEx?.message);
-          // Photo upload hung past 45s — same fallback: publish without it.
           onError(
             "Photo upload was too slow on your connection — your post was published without it."
           );
           image_url = null;
+        }
+
+        if (raceResult) {
+          if (raceResult.skipped) {
+            // User clicked "Skip photo" — publish without it.
+            image_url = null;
+          } else if (raceResult.ok) {
+            const { error: uploadErr } = raceResult.result;
+            if (uploadErr) {
+              console.warn("[community-publish] upload error", uploadErr.message);
+              onError(
+                "Photo couldn't be uploaded — your post was published without it. You can edit it to add a photo later."
+              );
+              image_url = null;
+            } else {
+              const { data: pub } = supabase.storage.from("community-photos").getPublicUrl(path);
+              image_url = pub.publicUrl;
+            }
+          }
         }
       }
 
@@ -1006,8 +1032,20 @@ function Composer({
         </div>
 
         {saving && stage && (
-          <div className="text-xs text-primary bg-primary-light/40 rounded-btn px-3 py-2">
-            {stage}…
+          <div className="flex items-center gap-2 text-xs text-primary bg-primary-light/40 rounded-btn px-3 py-2">
+            <span className="flex-1">{stage}…</span>
+            {stage.startsWith("uploading photo") && !skipPhotoFlag && (
+              <button
+                type="button"
+                onClick={() => {
+                  skipPhotoRef.current = true;
+                  setSkipPhotoFlag(true);
+                }}
+                className="text-primary font-semibold underline underline-offset-2 hover:text-primary-dark"
+              >
+                {t("community.skipPhoto", undefined, "Skip photo & post")}
+              </button>
+            )}
           </div>
         )}
         {debugError && (
