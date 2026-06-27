@@ -730,22 +730,85 @@ function Composer({
       ]);
 
     try {
-      setStageBoth("checking sign-in");
-      let resolvedUserId = userId;
+      setStageBoth("verifying sign-in");
+      // Force-refresh the session before any write. This is the #1 cause of
+      // stuck "saving post" hangs — the JWT in memory has expired, and
+      // supabase-js auto-refreshes in the background, but that refresh can
+      // hang indefinitely. We do it explicitly with a tight timeout so we
+      // know the token is fresh OR we fail fast and prompt re-sign-in.
+      let resolvedUserId: string | null = null;
+      try {
+        const { data: sessionData } = await withSoftTimeout(
+          supabase.auth.refreshSession(),
+          8000,
+          "session refresh"
+        );
+        resolvedUserId = sessionData?.session?.user?.id || null;
+      } catch {
+        // Refresh failed — fall back to whatever we already had cached.
+        // If refreshSession() returns a 403 it means the refresh token is
+        // dead and the user needs to re-sign-in.
+      }
+
+      // If refresh didn't yield a user, try getUser() — sometimes the
+      // session is still valid in storage even when refresh fails.
       if (!resolvedUserId) {
         try {
           const { data: auth } = await withSoftTimeout(
             supabase.auth.getUser(),
-            15000,
+            8000,
             "auth check"
           );
           resolvedUserId = auth?.user?.id || null;
         } catch {
-          return fail("Couldn't verify your sign-in. Please refresh and try again.");
+          // Fall through to prop / hard fail below.
         }
       }
+
+      // Last resort — use the prop passed from the server-rendered page.
+      // The server resolved it from cookies during SSR, so it's trustworthy
+      // even if the client-side Supabase is having a bad day.
+      if (!resolvedUserId) resolvedUserId = userId;
+
       if (!resolvedUserId) {
-        return fail("Not signed in. Please log in and try again.");
+        return fail(
+          "Your sign-in session expired. Please refresh the page or sign in again."
+        );
+      }
+
+      // Ensure a profile row exists for this user. The community_posts FK
+      // requires it. If the original signup trigger silently failed, this
+      // self-heal creates it now.
+      setStageBoth("checking profile");
+      try {
+        const { data: { user: freshUser } } = await withSoftTimeout(
+          supabase.auth.getUser(),
+          5000,
+          "fresh user"
+        );
+        const fallbackName =
+          (freshUser?.user_metadata?.full_name as string)?.trim() ||
+          (freshUser?.user_metadata?.name as string)?.trim() ||
+          freshUser?.email?.split("@")[0] ||
+          "Member";
+        await withSoftTimeout(
+          supabase
+            .from("profiles")
+            .upsert(
+              {
+                id: resolvedUserId,
+                email: freshUser?.email || null,
+                full_name: fallbackName,
+                avatar_url: (freshUser?.user_metadata?.avatar_url as string) || null,
+              },
+              { onConflict: "id", ignoreDuplicates: true }
+            ),
+          5000,
+          "profile upsert"
+        );
+      } catch {
+        // Best effort — if upsert fails (RLS or timeout), the post insert
+        // below will surface a real error and we'll know.
       }
 
       let image_url: string | null = null;

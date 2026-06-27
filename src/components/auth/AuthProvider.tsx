@@ -28,6 +28,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     const init = async () => {
+      // Try to refresh the session first so the in-memory access token
+      // matches what's actually in the cookies. If the refresh fails (e.g.,
+      // refresh token expired), fall back to the cached session — we'll
+      // catch the dead state on the next API call.
+      try {
+        await supabase.auth.refreshSession();
+      } catch {
+        // Best effort.
+      }
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) {
         const m = document.cookie.match(/language=([^;]+)/);
