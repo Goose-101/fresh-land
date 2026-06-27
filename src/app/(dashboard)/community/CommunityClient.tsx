@@ -767,13 +767,18 @@ function Composer({
         }
         const sizeKB = Math.round(toUpload.size / 1024);
         setStageBoth(`uploading photo (${sizeKB}KB)`);
-        const path = `${resolvedUserId}/${Date.now()}.jpg`;
 
-        // Race the upload against (a) a fail-fast 30s timeout and (b) the
-        // user-controlled "skip photo" flag — whichever fires first wins.
-        const uploadPromise = supabase.storage
-          .from("community-photos")
-          .upload(path, toUpload, { cacheControl: "3600", upsert: false });
+        // Route the upload through our own server endpoint instead of going
+        // direct browser → Supabase storage. The Vercel function has a
+        // reliable connection to Supabase that the browser apparently does
+        // not, on this network.
+        const formData = new FormData();
+        formData.append("file", toUpload);
+
+        const uploadPromise = fetch("/api/community/upload-photo", {
+          method: "POST",
+          body: formData,
+        });
 
         const skipWatcher = new Promise<{ skipped: true }>((resolve) => {
           const id = setInterval(() => {
@@ -787,9 +792,9 @@ function Composer({
         let raceResult: any;
         try {
           raceResult = await Promise.race([
-            uploadPromise.then((r) => ({ ok: true, result: r })),
+            uploadPromise.then((r) => ({ ok: true, response: r })),
             new Promise((_, rej) =>
-              setTimeout(() => rej(new Error("upload timed out")), 30000)
+              setTimeout(() => rej(new Error("upload timed out")), 45000)
             ),
             skipWatcher,
           ]);
@@ -803,19 +808,24 @@ function Composer({
 
         if (raceResult) {
           if (raceResult.skipped) {
-            // User clicked "Skip photo" — publish without it.
             image_url = null;
           } else if (raceResult.ok) {
-            const { error: uploadErr } = raceResult.result;
-            if (uploadErr) {
-              console.warn("[community-publish] upload error", uploadErr.message);
+            try {
+              const json = await raceResult.response.json();
+              if (!raceResult.response.ok || !json.url) {
+                console.warn("[community-publish] upload error", json.error);
+                onError(
+                  "Photo couldn't be uploaded — your post was published without it. You can edit it to add a photo later."
+                );
+                image_url = null;
+              } else {
+                image_url = json.url;
+              }
+            } catch {
               onError(
-                "Photo couldn't be uploaded — your post was published without it. You can edit it to add a photo later."
+                "Photo couldn't be uploaded — your post was published without it."
               );
               image_url = null;
-            } else {
-              const { data: pub } = supabase.storage.from("community-photos").getPublicUrl(path);
-              image_url = pub.publicUrl;
             }
           }
         }
