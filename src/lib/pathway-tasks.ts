@@ -34,6 +34,46 @@ export type ImmigrationStatus =
 export type Phase = 1 | 2 | 3;
 export type TaskStatus = "not_started" | "in_progress" | "done" | "already";
 
+// Top-level focus areas users pick during onboarding. Used to filter
+// non-essential tasks (Phase 2 + 3) so the pathway feels tailored to
+// what each person actually cares about — not a 25-step list everyone
+// has to scroll through.
+export type FocusArea =
+  | "legal"
+  | "financial"
+  | "healthcare"
+  | "education"
+  | "housing"
+  | "family"
+  | "community"
+  | "food";
+
+export const FOCUS_AREA_OPTIONS: { value: FocusArea; label: string }[] = [
+  { value: "legal", label: "Legal status & documents" },
+  { value: "financial", label: "Money & banking" },
+  { value: "healthcare", label: "Healthcare" },
+  { value: "education", label: "Education & school" },
+  { value: "housing", label: "Housing" },
+  { value: "family", label: "Family & kids" },
+  { value: "community", label: "Community & connection" },
+  { value: "food", label: "Food & groceries" },
+];
+
+// Map task categories to focus areas. Tasks can belong to one focus area
+// based on the category they already declare.
+const CATEGORY_TO_FOCUS: Record<string, FocusArea> = {
+  legal: "legal",
+  financial: "financial",
+  healthcare: "healthcare",
+  education: "education",
+  libraries: "education",
+  housing: "housing",
+  community: "community",
+  parks: "community",
+  food: "food",
+  emergency: "healthcare",
+};
+
 export type PathwayTask = {
   id: string;
   phase: Phase;
@@ -57,6 +97,7 @@ export type OnboardingState = {
   timeInUS: TimeInUS | null;
   status: ImmigrationStatus | null;
   hasChildren: boolean | null;
+  focusAreas?: FocusArea[];
 };
 
 export type TaskRecord = { status: TaskStatus; updatedAt: string };
@@ -401,6 +442,14 @@ export function isTaskVisible(task: PathwayTask, ob: OnboardingState): boolean {
   if (task.showIf?.hasChildren && !ob.hasChildren) return false;
   if (task.showIf?.status && ob.status && !task.showIf.status.includes(ob.status))
     return false;
+
+  // Phase 1 is always visible — those are the must-do basics for everyone.
+  // Phase 2 and 3 get filtered by the user's chosen focus areas so the
+  // pathway is shorter and more relevant.
+  if (task.phase !== 1 && ob.focusAreas && ob.focusAreas.length > 0) {
+    const taskFocus = CATEGORY_TO_FOCUS[task.category];
+    if (taskFocus && !ob.focusAreas.includes(taskFocus)) return false;
+  }
   return true;
 }
 

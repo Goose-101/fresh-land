@@ -9,7 +9,7 @@ export async function Footer() {
 
   return (
     <footer className="bg-white border-t border-border mt-16">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 grid md:grid-cols-4 gap-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 grid md:grid-cols-5 gap-8">
         <div className="md:col-span-2">
           <Logo />
           <p className="mt-3 text-sm text-text-secondary max-w-xs">
@@ -31,6 +31,13 @@ export async function Footer() {
             <li><Link href="/login" className="text-text-secondary hover:text-primary">{t("action.signIn")}</Link></li>
             <li><Link href="/signup" className="text-text-secondary hover:text-primary">{t("action.signUp")}</Link></li>
             <li><Link href="/dashboard" className="text-text-secondary hover:text-primary">{t("nav.dashboard")}</Link></li>
+          </ul>
+        </div>
+        <div>
+          <h4 className="label mb-3">{t("footer.legal")}</h4>
+          <ul className="flex flex-col gap-2 text-sm">
+            <li><Link href="/terms" className="text-text-secondary hover:text-primary">{t("footer.terms")}</Link></li>
+            <li><Link href="/privacy" className="text-text-secondary hover:text-primary">{t("footer.privacy")}</Link></li>
           </ul>
         </div>
       </div>

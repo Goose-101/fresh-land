@@ -526,6 +526,9 @@
     "account": "Account",
     "allResources": "All Resources",
     "legalAid": "Legal Aid",
+    "legal": "Legal",
+    "terms": "Terms of Service",
+    "privacy": "Privacy Policy",
     "copy": "© {year} Fresh Land · Free forever · Emergency help: dial 9-1-1"
   }
 }

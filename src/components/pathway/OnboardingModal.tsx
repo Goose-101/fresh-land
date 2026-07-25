@@ -14,6 +14,8 @@ import { cn } from "@/lib/utils";
 import {
   TASKS,
   isTaskVisible,
+  FOCUS_AREA_OPTIONS,
+  type FocusArea,
   type ImmigrationStatus,
   type OnboardingState,
   type TimeInUS,
@@ -23,6 +25,7 @@ type Draft = {
   timeInUS: TimeInUS | null;
   status: ImmigrationStatus | null;
   hasChildren: boolean | null;
+  focusAreas: FocusArea[];
   alreadyDone: Set<string>;
 };
 
@@ -52,21 +55,23 @@ export function OnboardingModal({
   onComplete: (state: OnboardingState, alreadyDone: string[]) => void;
 }) {
   const { t } = useT();
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [draft, setDraft] = useState<Draft>({
     timeInUS: null,
     status: null,
     hasChildren: null,
+    focusAreas: [],
     alreadyDone: new Set(),
   });
 
   const candidateTasks = useMemo(() => {
-    if (step !== 4) return [];
+    if (step !== 5) return [];
     const ob: OnboardingState = {
       completedAt: null,
       timeInUS: draft.timeInUS,
       status: draft.status,
       hasChildren: draft.hasChildren,
+      focusAreas: draft.focusAreas,
     };
     return TASKS.filter((task) => isTaskVisible(task, ob));
   }, [draft, step]);
@@ -77,15 +82,26 @@ export function OnboardingModal({
       timeInUS: draft.timeInUS,
       status: draft.status,
       hasChildren: draft.hasChildren,
+      focusAreas: draft.focusAreas,
     };
     onComplete(final, Array.from(alreadySet));
+  };
+
+  const toggleFocus = (area: FocusArea) => {
+    setDraft((prev) => ({
+      ...prev,
+      focusAreas: prev.focusAreas.includes(area)
+        ? prev.focusAreas.filter((a) => a !== area)
+        : [...prev.focusAreas, area],
+    }));
   };
 
   const canAdvance =
     (step === 1 && draft.timeInUS) ||
     (step === 2 && draft.status) ||
     (step === 3 && draft.hasChildren !== null) ||
-    step === 4;
+    (step === 4 && draft.focusAreas.length > 0) ||
+    step === 5;
 
   return (
     <Modal
@@ -155,6 +171,13 @@ export function OnboardingModal({
         )}
 
         {step === 4 && (
+          <FocusAreasStep
+            selected={draft.focusAreas}
+            onToggle={toggleFocus}
+          />
+        )}
+
+        {step === 5 && (
           <AlreadyDoneStep
             tasks={candidateTasks}
             selected={draft.alreadyDone}
@@ -165,7 +188,7 @@ export function OnboardingModal({
         <div className="flex items-center justify-between pt-1">
           <Button
             variant="ghost"
-            onClick={() => (step > 1 ? setStep(((step - 1) as 1 | 2 | 3)) : onClose())}
+            onClick={() => (step > 1 ? setStep(((step - 1) as 1 | 2 | 3 | 4)) : onClose())}
           >
             <ArrowLeft className="h-4 w-4" />
             {step === 1
@@ -173,9 +196,9 @@ export function OnboardingModal({
               : t("action.back", undefined, "Back")}
           </Button>
 
-          {step < 4 ? (
+          {step < 5 ? (
             <Button
-              onClick={() => setStep(((step + 1) as 2 | 3 | 4))}
+              onClick={() => setStep(((step + 1) as 2 | 3 | 4 | 5))}
               disabled={!canAdvance}
             >
               {t("action.continue", undefined, "Continue")}
@@ -201,7 +224,7 @@ export function OnboardingModal({
 function Stepper({ current }: { current: number }) {
   return (
     <div className="flex items-center gap-2">
-      {[1, 2, 3, 4].map((n) => (
+      {[1, 2, 3, 4, 5].map((n) => (
         <div
           key={n}
           className={cn(
@@ -210,6 +233,57 @@ function Stepper({ current }: { current: number }) {
           )}
         />
       ))}
+    </div>
+  );
+}
+
+function FocusAreasStep({
+  selected,
+  onToggle,
+}: {
+  selected: FocusArea[];
+  onToggle: (a: FocusArea) => void;
+}) {
+  const { t } = useT();
+  return (
+    <div className="flex flex-col gap-3">
+      <div>
+        <h4 className="text-lg font-semibold">
+          {t(
+            "pathway.onboarding.q4",
+            undefined,
+            "What matters most to you right now?"
+          )}
+        </h4>
+        <p className="text-sm text-text-secondary mt-1">
+          {t(
+            "pathway.onboarding.q4Sub",
+            undefined,
+            "Pick the areas you want help with — your pathway will focus on these. Choose at least one."
+          )}
+        </p>
+      </div>
+      <div className="grid sm:grid-cols-2 gap-2">
+        {FOCUS_AREA_OPTIONS.map((opt) => {
+          const active = selected.includes(opt.value);
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onToggle(opt.value)}
+              className={cn(
+                "text-left rounded-card border px-4 py-3 text-sm font-medium transition flex items-center justify-between",
+                active
+                  ? "border-primary bg-primary-light ring-2 ring-primary/20"
+                  : "border-border bg-white hover:border-primary"
+              )}
+            >
+              <span>{opt.label}</span>
+              {active && <CheckCircle2 className="h-4 w-4 text-primary shrink-0 ml-2" />}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
