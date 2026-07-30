@@ -24,16 +24,27 @@ export function SaveButton({
   const onToggle = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!user) return setSignInModal(true);
+
+    const supabase = createClient();
+
+    // Trust the in-memory user first, but if it's momentarily empty (session
+    // still initializing, or a token refresh briefly cleared it) confirm against
+    // the live session before treating the visitor as signed out. This prevents
+    // logged-in users from being wrongly bounced to the sign-in prompt.
+    let userId = user?.id;
+    if (!userId) {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (!authUser) return setSignInModal(true);
+      userId = authUser.id;
+    }
 
     toggleSaved(resourceId);
-    const supabase = createClient();
 
     if (saved) {
       const { error } = await supabase
         .from("saved_resources")
         .delete()
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .eq("resource_id", resourceId);
       if (error) {
         toggleSaved(resourceId);
@@ -44,7 +55,7 @@ export function SaveButton({
     } else {
       const { error } = await supabase
         .from("saved_resources")
-        .insert({ user_id: user.id, resource_id: resourceId });
+        .insert({ user_id: userId, resource_id: resourceId });
       if (error) {
         toggleSaved(resourceId);
         showToast("error", "Could not save. Try again.");
