@@ -3,7 +3,6 @@ import { Heart } from "lucide-react";
 import { useState } from "react";
 import Link from "next/link";
 import { useAppStore } from "@/store";
-import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
@@ -17,7 +16,7 @@ export function SaveButton({
   className?: string;
   showLabel?: boolean;
 }) {
-  const { user, savedIds, toggleSaved, showToast } = useAppStore();
+  const { savedIds, toggleSaved, showToast } = useAppStore();
   const [signInModal, setSignInModal] = useState(false);
   const saved = savedIds.has(resourceId);
 
@@ -25,43 +24,35 @@ export function SaveButton({
     e.preventDefault();
     e.stopPropagation();
 
-    const supabase = createClient();
-
-    // Trust the in-memory user first, but if it's momentarily empty (session
-    // still initializing, or a token refresh briefly cleared it) confirm against
-    // the live session before treating the visitor as signed out. This prevents
-    // logged-in users from being wrongly bounced to the sign-in prompt.
-    let userId = user?.id;
-    if (!userId) {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser) return setSignInModal(true);
-      userId = authUser.id;
-    }
-
+    // Optimistically flip the heart, then persist via a server endpoint. The
+    // server reads the login session from cookies (reliable), so saving works
+    // even when the browser can't read the session locally. If the save fails
+    // we revert the heart so it never lies about what's actually stored.
+    const wasSaved = saved;
     toggleSaved(resourceId);
 
-    if (saved) {
-      const { error } = await supabase
-        .from("saved_resources")
-        .delete()
-        .eq("user_id", userId)
-        .eq("resource_id", resourceId);
-      if (error) {
+    try {
+      const res = wasSaved
+        ? await fetch(`/api/saved?resourceId=${encodeURIComponent(resourceId)}`, { method: "DELETE" })
+        : await fetch("/api/saved", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ resourceId }),
+          });
+
+      if (res.status === 401) {
         toggleSaved(resourceId);
-        showToast("error", "Could not remove. Try again.");
-      } else {
-        await supabase.rpc("decrement_save_count", { r_id: resourceId }).throwOnError().then(() => {}, () => {});
+        return setSignInModal(true);
       }
-    } else {
-      const { error } = await supabase
-        .from("saved_resources")
-        .insert({ user_id: userId, resource_id: resourceId });
-      if (error) {
+      if (!res.ok) {
         toggleSaved(resourceId);
-        showToast("error", "Could not save. Try again.");
-      } else {
-        showToast("success", "Saved to your resources");
+        showToast("error", wasSaved ? "Could not remove. Try again." : "Could not save. Try again.");
+        return;
       }
+      if (!wasSaved) showToast("success", "Saved to your resources");
+    } catch {
+      toggleSaved(resourceId);
+      showToast("error", "Something went wrong. Try again.");
     }
   };
 
